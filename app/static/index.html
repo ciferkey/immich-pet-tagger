@@ -15,26 +15,47 @@
     </div>
     <div class="pets-list" id="petsList"></div>
     <button class="add-pet-btn" onclick="openAddPet()">+ Add pet</button>
+    <div class="sidebar-bottom">
+      <div class="scan-panel">
+        <label>Scan from</label>
+        <div class="scan-row">
+          <input type="date" id="scanDate">
+          <button class="btn" style="font-size:11px; padding:5px 10px;" onclick="applyTimestamp()">Apply</button>
+        </div>
+      </div>
+      <div class="poll-panel">
+        <div class="poll-header">
+          <label>Last scan</label>
+          <span class="poll-badge never" id="pollBadge">never</span>
+        </div>
+        <div class="poll-time" id="pollTime"></div>
+        <div class="poll-stats" id="pollStats"></div>
+      </div>
+    </div>
   </div>
   <div class="main">
-    <div class="topbar">
-      <button class="btn" id="suggestBtn" onclick="viewSuggestions()" style="display:none">Similar</button>
-      <span id="selCount" style="font-size:12px; color:var(--text3); min-width:60px;"></span>
-      <button class="btn btn-primary" id="assignBtn" onclick="assignSelected()" style="display:none">Add to pet →</button>
-      <button class="btn btn-danger" id="rejectBtn" onclick="rejectSelected()" style="display:none">Remove tag + mark unknown</button>
-    </div>
     <div class="content">
       <div class="results-panel">
-        <div class="panel-label" id="resultsLabel">Search to find photos</div>
+        <div class="results-header">
+          <span class="panel-label" id="resultsLabel"></span>
+          <div class="results-actions">
+            <span id="selCount" style="font-size:12px; color:var(--text3);"></span>
+            <button class="btn btn-primary" id="assignBtn" onclick="assignSelected()" style="display:none">Add to pet →</button>
+            <button class="btn btn-danger" id="rejectBtn" onclick="rejectSelected()" style="display:none">Remove tag + mark "not my pets"</button>
+          </div>
+        </div>
         <div class="photo-grid" id="photoGrid">
           <div class="empty" style="grid-column:1/-1; height:300px;">
             <div class="empty-icon">🐾</div>
             <div class="empty-title">Find photos</div>
-            <div class="empty-sub">Click Similar to find photos matching this pet</div>
+            <div class="empty-sub">Click "Find similar photos" to get started</div>
           </div>
         </div>
       </div>
       <div class="refs-panel">
+        <div class="suggest-section" id="suggestSection" style="display:none">
+          <button class="btn btn-primary" id="suggestBtn" onclick="viewSuggestions()">Find similar photos</button>
+        </div>
         <div class="refs-header">
           <span style="font-size:12px; font-weight:500;" id="refsTitle">No pet selected</span>
           <button class="btn" id="taggedBtn" onclick="viewTagged()" style="display:none; font-size:11px; padding:3px 8px;">Tagged</button>
@@ -44,14 +65,6 @@
             <div class="empty-sub">Select a pet</div>
           </div>
         </div>
-        <div class="poll-panel">
-          <div class="poll-header">
-            <label>Last scan</label>
-            <span class="poll-badge never" id="pollBadge">never</span>
-          </div>
-          <div class="poll-time" id="pollTime"></div>
-          <div class="poll-stats" id="pollStats"></div>
-        </div>
         <div class="neg-panel">
           <div class="neg-header">
             <span style="font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--text3);">Not my pets</span>
@@ -59,13 +72,6 @@
           </div>
           <div class="neg-grid" id="negGrid"></div>
           <button class="btn" style="width:100%; font-size:11px; margin-top:8px;" id="addNegBtn" onclick="addSelectedAsNegatives()" style="display:none">Mark selected as "not my pets"</button>
-        </div>
-        <div class="scan-panel">
-          <label>Scan from</label>
-          <div class="scan-row">
-            <input type="date" id="scanDate">
-            <button class="btn" style="font-size:11px; padding:5px 10px;" onclick="applyTimestamp()">Apply</button>
-          </div>
         </div>
       </div>
     </div>

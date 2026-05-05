@@ -43,7 +43,7 @@ function renderSidebar() {
     el.innerHTML = '<div style="padding:16px;font-size:12px;color:var(--text3);text-align:center;line-height:1.6;">No pets yet.<br>Add one to get started.</div>';
     document.getElementById('photoGrid').innerHTML = '<div class="empty" style="grid-column:1/-1;height:300px;"><div class="empty-icon">🐾</div><div class="empty-title">No pets yet</div><div class="empty-sub">Add a pet using the sidebar to get started</div></div>';
     document.getElementById('refsTitle').textContent = 'No pet selected';
-    document.getElementById('suggestBtn').style.display = 'none';
+    document.getElementById('suggestSection').style.display = 'none';
     document.getElementById('taggedBtn').style.display = 'none';
     document.getElementById('refsGrid').innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-sub">Add a pet first</div></div>';
     return;
@@ -76,7 +76,7 @@ async function selectPet(name) {
   activePet = pets.find(p => p.name === name);
   clearSearch(); renderSidebar();
   document.getElementById('refsTitle').textContent = name;
-  document.getElementById('suggestBtn').style.display = activePet?.description ? '' : 'none';
+  document.getElementById('suggestSection').style.display = '';
   document.getElementById('taggedBtn').style.display = '';
   document.getElementById('taggedBtn').textContent = 'Tagged';
   await loadRefs(name);
@@ -134,6 +134,7 @@ async function assignSelected() {
 
 async function viewSuggestions() {
   if (!activePet) return;
+  if (!activePet.description) { toast('Edit this pet and add a description to use this feature', 'error'); return; }
   taggedMode = false;
   selectedIds.clear(); lastClickedId = null; updateSelUI();
   const grid = document.getElementById('photoGrid');
