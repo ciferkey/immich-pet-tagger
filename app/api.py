@@ -452,6 +452,67 @@ async def remove_pet_asset(name: str, asset_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Tagged assets (currently tagged in Immich for a pet)
+# ---------------------------------------------------------------------------
+
+@router.get("/pets/{name}/tagged")
+async def get_tagged_assets(name: str):
+    config = load_config()
+    if name not in config:
+        raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
+    person_id = config[name].get("person_id")
+    if not person_id:
+        return {"assets": [], "count": 0}
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{IMMICH_URL}/api/search/metadata",
+            headers=immich_headers(),
+            json={"personIds": [person_id], "type": "IMAGE", "size": 1000},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    assets = resp.json().get("assets", {}).get("items", [])
+    return {"assets": [_slim_asset(a) for a in assets], "count": len(assets)}
+
+
+@router.post("/pets/{name}/reject")
+async def reject_tagged_assets(name: str, body: PetAssets):
+    """Remove face tags from Immich and add assets to negatives."""
+    config = load_config()
+    if name not in config:
+        raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
+    person_id = config[name].get("person_id")
+    if not person_id:
+        raise HTTPException(status_code=400, detail="Pet has no person_id")
+
+    removed = 0
+    async with httpx.AsyncClient(timeout=30) as client:
+        for asset_id in body.asset_ids:
+            faces_resp = await client.get(
+                f"{IMMICH_URL}/api/faces",
+                headers=immich_headers(),
+                params={"id": asset_id},
+            )
+            if faces_resp.status_code == 200:
+                for face in faces_resp.json():
+                    if face.get("person", {}).get("id") == person_id:
+                        await client.request(
+                            "DELETE",
+                            f"{IMMICH_URL}/api/faces/{face.get('id')}",
+                            headers=immich_headers(),
+                            json={"force": True},
+                        )
+                        removed += 1
+                        break
+
+    existing = set(load_negative_ids())
+    merged = list(existing | set(body.asset_ids))
+    save_negative_ids(merged)
+    log.info(f"Rejected {len(body.asset_ids)} assets for '{name}': {removed} faces removed, {len(merged)-len(existing)} added to negatives")
+    return {"ok": True, "removed": removed}
+
+
+# ---------------------------------------------------------------------------
 # Scan timestamp
 # ---------------------------------------------------------------------------
 

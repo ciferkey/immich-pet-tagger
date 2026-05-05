@@ -41,6 +41,8 @@
   .btn:hover { background: var(--bg3); border-color: var(--accent); color: var(--accent); }
   .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .btn-primary:hover { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+  .btn-danger { border-color: var(--danger); color: var(--danger); }
+  .btn-danger:hover { background: rgba(201,74,74,0.1); border-color: var(--danger); color: var(--danger); }
   .content { flex: 1; display: flex; overflow: hidden; }
   .results-panel { flex: 1; overflow-y: auto; padding: 16px; }
   .panel-label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text3); margin-bottom: 12px; }
@@ -142,6 +144,7 @@
       <button class="btn" onclick="doSearch()">Search</button>
       <span id="selCount" style="font-size:12px; color:var(--text3); min-width:60px;"></span>
       <button class="btn btn-primary" id="assignBtn" onclick="assignSelected()" style="display:none">Add to pet →</button>
+      <button class="btn btn-danger" id="rejectBtn" onclick="rejectSelected()" style="display:none">Remove tag + mark unknown</button>
     </div>
     <div class="content">
       <div class="results-panel">
@@ -157,6 +160,7 @@
       <div class="refs-panel">
         <div class="refs-header">
           <span style="font-size:12px; font-weight:500;" id="refsTitle">No pet selected</span>
+          <button class="btn" id="taggedBtn" onclick="viewTagged()" style="display:none; font-size:11px; padding:3px 8px;">Tagged</button>
         </div>
         <div class="refs-grid" id="refsGrid">
           <div class="empty" style="grid-column:1/-1; height:200px;">
@@ -257,7 +261,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-let pets = [], activePet = null, selectedIds = new Set(), refsIds = [], negIds = [], immichUrl = "http://localhost:2283";
+let pets = [], activePet = null, selectedIds = new Set(), refsIds = [], negIds = [], immichUrl = "http://localhost:2283", taggedMode = false;
 
 async function api(path, opts={}) {
   const r = await fetch(path, { headers: {'Content-Type':'application/json'}, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
@@ -297,6 +301,7 @@ function renderSidebar() {
     document.querySelector('.topbar .btn').disabled = true;
     document.getElementById('photoGrid').innerHTML = '<div class="empty" style="grid-column:1/-1;height:300px;"><div class="empty-icon">🐾</div><div class="empty-title">No pets yet</div><div class="empty-sub">Add a pet using the sidebar to get started</div></div>';
     document.getElementById('refsTitle').textContent = 'No pet selected';
+    document.getElementById('taggedBtn').style.display = 'none';
     document.getElementById('refsGrid').innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-sub">Add a pet first</div></div>';
     return;
   }
@@ -329,9 +334,12 @@ async function selectPet(name) {
     const ok = confirm(`You have ${selectedIds.size} selected photo${selectedIds.size!==1?'s':''} not yet assigned. Switch anyway?`);
     if (!ok) return;
   }
+  taggedMode = false;
   activePet = pets.find(p=>p.name===name);
   clearSearch(); renderSidebar();
   document.getElementById('refsTitle').textContent = name;
+  document.getElementById('taggedBtn').style.display = '';
+  document.getElementById('taggedBtn').textContent = 'Tagged';
   await loadRefs(name);
   await loadNegatives();
 }
@@ -372,9 +380,61 @@ async function removeRef(id) {
   } catch(e) { toast('Error: '+e.message,'error'); }
 }
 
+async function viewTagged() {
+  if (!activePet) return;
+  taggedMode = true;
+  selectedIds.clear();
+  const grid = document.getElementById('photoGrid');
+  const label = document.getElementById('resultsLabel');
+  grid.innerHTML = '<div class="loading" style="grid-column:1/-1">Loading tagged photos...</div>';
+  label.textContent = 'Loading...';
+  updateSelUI();
+  try {
+    const d = await api(`/api/pets/${encodeURIComponent(activePet.name)}/tagged`);
+    label.textContent = `${d.count} photo${d.count !== 1 ? 's' : ''} tagged as ${activePet.name} in Immich`;
+    document.getElementById('taggedBtn').textContent = `Tagged (${d.count})`;
+    if (!d.assets.length) {
+      grid.innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-icon">🐾</div><div class="empty-title">No tagged photos yet</div></div>';
+      return;
+    }
+    grid.innerHTML = d.assets.map(a => `
+      <div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect('${a.id}')" title="${a.filename || a.id} · ${a.date}">
+        <img src="${a.thumb}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
+        <div class="photo-check">✓</div>
+      </div>`).join('');
+  } catch(e) {
+    label.textContent = 'Failed to load';
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="empty-sub">${e.message}</div></div>`;
+  }
+}
+
+function exitTaggedMode() {
+  taggedMode = false;
+  selectedIds.clear();
+  updateSelUI();
+  document.getElementById('taggedBtn').textContent = 'Tagged';
+  clearSearch();
+}
+
+async function rejectSelected() {
+  if (!activePet || !selectedIds.size) return;
+  const ids = [...selectedIds];
+  try {
+    await api(`/api/pets/${encodeURIComponent(activePet.name)}/reject`, {method: 'POST', body: {asset_ids: ids}});
+    ids.forEach(id => document.getElementById('th-' + id)?.remove());
+    selectedIds.clear(); updateSelUI();
+    await loadNegatives();
+    const remaining = document.querySelectorAll('#photoGrid .photo-thumb').length;
+    document.getElementById('resultsLabel').textContent = `${remaining} photo${remaining !== 1 ? 's' : ''} tagged as ${activePet.name} in Immich`;
+    document.getElementById('taggedBtn').textContent = `Tagged (${remaining})`;
+    toast(`Removed ${ids.length} tag${ids.length !== 1 ? 's' : ''} and marked as unknown`, 'success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
 async function doSearch() {
   const q = document.getElementById('searchInput').value.trim(); if (!q) return;
   if (!activePet) { toast('Select a pet first to scope the search', 'error'); return; }
+  taggedMode = false;
   const grid = document.getElementById('photoGrid'), label = document.getElementById('resultsLabel');
   grid.innerHTML='<div class="loading" style="grid-column:1/-1">Searching…</div>';
   label.textContent='Searching…'; selectedIds.clear(); updateSelUI();
@@ -416,8 +476,9 @@ function toggleSelect(id) {
 function updateSelUI() {
   const n = selectedIds.size;
   document.getElementById('selCount').textContent = n ? `${n} selected` : '';
-  document.getElementById('assignBtn').style.display = (n && activePet) ? '' : 'none';
-  document.getElementById('addNegBtn').style.display = n ? '' : 'none';
+  document.getElementById('assignBtn').style.display = (n && activePet && !taggedMode) ? '' : 'none';
+  document.getElementById('addNegBtn').style.display = (n && !taggedMode) ? '' : 'none';
+  document.getElementById('rejectBtn').style.display = (n && taggedMode) ? '' : 'none';
 }
 
 async function assignSelected() {
