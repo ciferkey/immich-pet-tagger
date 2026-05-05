@@ -12,6 +12,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 log = logging.getLogger("api")
@@ -19,6 +20,7 @@ log = logging.getLogger("api")
 router = APIRouter(prefix="/api")
 
 IMMICH_URL = os.environ.get("IMMICH_URL", "http://immich-server:2283")
+IMMICH_EXTERNAL_URL = os.environ.get("IMMICH_EXTERNAL_URL", "http://localhost:2283")
 IMMICH_API_KEY = os.environ.get("IMMICH_API_KEY", "")
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 CONFIG_FILE = DATA_DIR / "config.json"
@@ -96,6 +98,12 @@ class PetAssets(BaseModel):
 # Search
 # ---------------------------------------------------------------------------
 
+@router.get("/config")
+async def get_config():
+    """Returns browser-safe configuration."""
+    return {"immich_external_url": IMMICH_EXTERNAL_URL}
+
+
 @router.get("/search")
 async def search_assets(q: str, limit: int = 40, since: Optional[str] = None, until: Optional[str] = None):
     """Proxy smart search to Immich, optionally scoped by date range."""
@@ -153,7 +161,7 @@ async def create_pet(pet: PetCreate):
     if not name:
         raise HTTPException(status_code=400, detail="Name cannot be empty")
     if any(c in name for c in r'/\.'):
-        raise HTTPException(status_code=400, detail="Pet name cannot contain / \ or .")
+        raise HTTPException(status_code=400, detail="Pet name cannot contain /, \\, or .")
     if name.lower() in {k.lower() for k in config}:
         raise HTTPException(status_code=409, detail=f"Pet '{name}' already exists")
 
@@ -188,7 +196,7 @@ async def update_pet(name: str, update: PetUpdate):
     new_name = update.name.strip() if update.name else None
     if new_name and new_name != name:
         if any(c in new_name for c in r'/\.'):
-            raise HTTPException(status_code=400, detail="Pet name cannot contain / \ or .")
+            raise HTTPException(status_code=400, detail="Pet name cannot contain /, \\, or .")
         if new_name.lower() in {k.lower() for k in config if k != name}:
             raise HTTPException(status_code=409, detail=f"Pet '{new_name}' already exists")
         # Rename in Immich
@@ -387,8 +395,7 @@ async def set_pet_assets(name: str, body: PetAssets):
 
     existing_ids = set(load_pet_asset_ids(name))
     new_ids = [aid for aid in body.asset_ids if aid not in existing_ids]
-    save_pet_asset_ids(name, body.asset_ids)
-    log.info(f"Saved {len(body.asset_ids)} refs for pet '{name}' ({len(new_ids)} new)")
+    log.info(f"Saving {len(body.asset_ids)} refs for pet '{name}' ({len(new_ids)} new)")
 
     # Assign faces in Immich for newly added assets, storing returned face_id
     ok = fail = skipped = 0
@@ -437,7 +444,7 @@ async def remove_pet_asset(name: str, asset_id: str):
             )
             log.info(f"Deleted face {face_id} on asset {asset_id} for pet '{name}' (status={resp.status_code})")
     else:
-        log.warning(f"No stored face_id for asset {asset_id} on pet '{name}', face not removed from Immich")
+        log.warning(f"No stored face_id for asset {asset_id} on pet '{name}' — face not removed from Immich")
 
     updated = [r for r in refs if r["asset_id"] != asset_id]
     save_pet_refs(name, updated)
@@ -445,48 +452,9 @@ async def remove_pet_asset(name: str, asset_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Negative samples (shared across all pets)
-# ---------------------------------------------------------------------------
-
-def load_negative_ids(data_dir: Path = DATA_DIR) -> list[str]:
-    path = data_dir / "negatives.json"
-    if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
-    return []
-
-
-def save_negative_ids(ids: list[str], data_dir: Path = DATA_DIR) -> None:
-    (data_dir / "negatives.json").write_text(json.dumps(ids, indent=2), encoding="utf-8")
-
-
-@router.get("/negatives")
-async def get_negatives():
-    ids = load_negative_ids()
-    assets = [{"id": aid, "thumb": f"/api/thumb/{aid}"} for aid in ids]
-    return {"assets": assets, "count": len(ids)}
-
-
-@router.post("/negatives")
-async def add_negatives(body: PetAssets):
-    existing = set(load_negative_ids())
-    merged = list(existing | set(body.asset_ids))
-    save_negative_ids(merged)
-    log.info(f"Negatives: {len(merged)} total (+{len(set(body.asset_ids) - existing)} new)")
-    return {"ok": True, "count": len(merged)}
-
-
-@router.delete("/negatives/{asset_id}")
-async def remove_negative(asset_id: str):
-    ids = [i for i in load_negative_ids() if i != asset_id]
-    save_negative_ids(ids)
-    return {"ok": True}
-
-
-# ---------------------------------------------------------------------------
 # Thumbnail proxy
 # ---------------------------------------------------------------------------
 
-from fastapi.responses import StreamingResponse as _SR
 
 @router.get("/person-thumb/{person_id}")
 async def person_thumbnail(person_id: str):
@@ -497,9 +465,8 @@ async def person_thumbnail(person_id: str):
         )
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code)
-    return _SR(resp.aiter_bytes(), media_type=resp.headers.get("content-type", "image/jpeg"))
+    return StreamingResponse(resp.aiter_bytes(), media_type=resp.headers.get("content-type", "image/jpeg"))
 
-from fastapi.responses import StreamingResponse
 
 @router.get("/thumb/{asset_id}")
 async def thumbnail(asset_id: str):

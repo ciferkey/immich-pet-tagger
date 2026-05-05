@@ -221,7 +221,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-let pets = [], activePet = null, selectedIds = new Set(), refsIds = [], negIds = [];
+let pets = [], activePet = null, selectedIds = new Set(), refsIds = [], negIds = [], immichUrl = "http://localhost:2283";
 
 async function api(path, opts={}) {
   const r = await fetch(path, { headers: {'Content-Type':'application/json'}, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
@@ -313,7 +313,9 @@ function renderRefs(assets) {
   if (!assets.length) { grid.innerHTML='<div class="empty" style="grid-column:1/-1;height:160px;"><div class="empty-sub">No references yet.<br>Search and add photos.</div></div>'; return; }
   grid.innerHTML = assets.map(a=>`
     <div class="ref-thumb">
-      <img src="${a.thumb}" loading="lazy" onerror="this.style.opacity=0.2">
+      <a href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" title="Open in Immich">
+        <img src="${a.thumb}" loading="lazy" onerror="this.style.opacity=0.2">
+      </a>
       <button class="ref-remove" onclick="removeRef('${a.id}')" title="Remove">✕</button>
     </div>`).join('');
 }
@@ -322,7 +324,14 @@ async function removeRef(id) {
   if (!activePet) return;
   try {
     await api(`/api/pets/${encodeURIComponent(activePet.name)}/assets/${id}`, {method:'DELETE'});
-    refsIds = refsIds.filter(i=>i!==id); await loadRefs(activePet.name); await loadPets(); loadNegatives(); toast('Removed');
+    refsIds = refsIds.filter(i=>i!==id); await loadRefs(activePet.name); await (async () => {
+  try {
+    const cfg = await api('/api/config');
+    immichUrl = cfg.immich_external_url.replace(/\/$/, '');
+  } catch(e) {}
+  loadPets();
+  loadNegatives();
+})(); toast('Removed');
   } catch(e) { toast('Error: '+e.message,'error'); }
 }
 
@@ -383,7 +392,14 @@ async function assignSelected() {
     document.querySelectorAll('.photo-thumb.selected').forEach(el=>{
       el.classList.remove('selected'); el.classList.add('is-ref');
     });
-    await loadRefs(activePet.name); await loadPets(); loadNegatives();
+    await loadRefs(activePet.name); await (async () => {
+  try {
+    const cfg = await api('/api/config');
+    immichUrl = cfg.immich_external_url.replace(/\/$/, '');
+  } catch(e) {}
+  loadPets();
+  loadNegatives();
+})();
     toast(`Added to ${activePet.name}`,'success');
   } catch(e) { toast('Error: '+e.message,'error'); }
 }
@@ -419,7 +435,14 @@ async function submitAddPet() {
   const since = sinceRaw||null, until = untilRaw||null;
   try {
     await api('/api/pets', {method:'POST', body:{name, since, until}});
-    closeModal(); await loadPets(); loadNegatives(); toast(`Created ${name}`,'success'); selectPet(name);
+    closeModal(); await (async () => {
+  try {
+    const cfg = await api('/api/config');
+    immichUrl = cfg.immich_external_url.replace(/\/$/, '');
+  } catch(e) {}
+  loadPets();
+  loadNegatives();
+})(); toast(`Created ${name}`,'success'); selectPet(name);
   } catch(e) { toast('Error: '+e.message,'error'); }
 }
 
@@ -543,12 +566,26 @@ async function confirmDeletePet() {
       document.getElementById('refsTitle').textContent = 'No pet selected';
       document.getElementById('refsGrid').innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-sub">Select a pet</div></div>';
     }
-    await loadPets(); loadNegatives();
+    await (async () => {
+  try {
+    const cfg = await api('/api/config');
+    immichUrl = cfg.immich_external_url.replace(/\/$/, '');
+  } catch(e) {}
+  loadPets();
+  loadNegatives();
+})();
     toast(`Deleted ${name}`, 'success');
   } catch(e) { toast('Error: '+e.message, 'error'); }
 }
 
-loadPets(); loadNegatives();
+(async () => {
+  try {
+    const cfg = await api('/api/config');
+    immichUrl = cfg.immich_external_url.replace(/\/$/, '');
+  } catch(e) {}
+  loadPets();
+  loadNegatives();
+})();
 </script>
 </body>
 </html>
