@@ -80,8 +80,8 @@ On first start, the CLIP model (~350MB) is downloaded and cached. Subsequent sta
 
 Open **http://localhost:8000** in your browser.
 
-1. Click **+ Add pet**, give it a name and optionally a date range (useful for pets no longer around, or recently acquired)
-2. Search your Immich library using natural language (e.g. "black cat on sofa")
+1. Click **+ Add pet**, give it a name, a short description (e.g. "orange tabby cat"), and optionally a date range
+2. Click **Find similar photos** to search your Immich library using the description
 3. Click photos to select them, then **Add to pet →**
 4. Repeat until you have 10–20 good reference photos per pet
 5. The classifier trains automatically on the next poll cycle
@@ -126,12 +126,11 @@ echo "2020-01-01T00:00:00.000Z" > /home/yourname/immich-pet-tagger/data/last_sca
 
 Then restart the container. Note: large libraries will take time to process on CPU.
 
-## Limitations & roadmap
+## Limitations
 
-- **One pet per photo**: when multiple pets appear in the same photo, only the highest-confidence match is tagged. YOLO-based multi-pet detection is planned for v1.1
-- **Polling only**: photos are processed within 5 minutes of upload. Native event-based triggering will be added when Immich's Workflows feature ships
-- **Search pagination**: search results are capped at 60 photos. Full pagination is planned for v1.1
-- **CPU only**: CLIP runs on CPU by default. If CUDA is available it will be used automatically, but GPU support is not officially tested
+- **One pet per photo**: when multiple pets appear in the same photo, only the highest-confidence match is tagged
+- **Polling only**: photos are processed within 5 minutes of upload, not instantly on upload
+- **CPU by default**: CLIP runs on CPU. If CUDA is available in the container it will be used automatically
 
 ## Troubleshooting
 
