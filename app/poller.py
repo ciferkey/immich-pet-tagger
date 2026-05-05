@@ -1,34 +1,30 @@
-"""
-Poller: incremental classification using local CLIP model.
-No DB access, embeddings computed from thumbnails via Immich HTTP API.
-"""
+"""Poller: incremental classification using a local CLIP model.
+No DB access. Embeddings computed from thumbnails via the Immich HTTP API."""
 
-import json
 import logging
 import os
+import random
 import time
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
+import io
 import numpy as np
+import open_clip
 import requests
 import torch
-import open_clip
 from PIL import Image
-import io
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
-from immich_apis import fetch_assets_taken_after, fetch_asset_face_person_ids, IMMICH_BASE, IMMICH_API_KEY
+import data
+import immich as imm
 
 log = logging.getLogger("poller")
 
 THRESHOLD = float(os.environ.get("THRESHOLD", 0.92))
 DRY_RUN = os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
-FACE_BOX_SIZE = 256
-STATE_FILE = "last_scan_timestamp.txt"
 
-# CLIP model ViT-B/16 matches Immich's default
 CLIP_MODEL_NAME = os.environ.get("CLIP_MODEL", "ViT-B-16")
 CLIP_PRETRAINED = os.environ.get("CLIP_PRETRAINED", "openai")
 
@@ -42,62 +38,18 @@ def get_clip():
     if _clip_model is None:
         log.info(f"Loading CLIP model {CLIP_MODEL_NAME} ({CLIP_PRETRAINED})...")
         _clip_device = "cuda" if torch.cuda.is_available() else "cpu"
-        _clip_model, _, _clip_preprocess = open_clip.create_model_and_transforms(
-            CLIP_MODEL_NAME, pretrained=CLIP_PRETRAINED
-        )
+        _clip_model, _, _clip_preprocess = open_clip.create_model_and_transforms(CLIP_MODEL_NAME, pretrained=CLIP_PRETRAINED)
         _clip_model.eval().to(_clip_device)
         log.info(f"CLIP loaded on {_clip_device}")
     return _clip_model, _clip_preprocess, _clip_device
 
 
 # ---------------------------------------------------------------------------
-# Config / state helpers
-# ---------------------------------------------------------------------------
-
-def load_config(data_dir: str) -> dict:
-    path = Path(data_dir) / "config.json"
-    if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
-    return {}
-
-
-def load_ref_ids(data_dir: str, pet_name: str) -> list[str]:
-    """Return asset IDs only. Handles legacy (strings) and new (dicts) format."""
-    path = Path(data_dir) / "pets" / pet_name / "refs.json"
-    if not path.exists():
-        return []
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not data:
-        return []
-    if isinstance(data[0], str):
-        return data
-    return [r["asset_id"] for r in data]
-
-
-def load_negative_ids(data_dir: str) -> list[str]:
-    path = Path(data_dir) / "negatives.json"
-    if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
-    return []
-
-
-def load_last_timestamp(data_dir: str) -> str:
-    path = Path(data_dir) / STATE_FILE
-    default = datetime.now(timezone.utc).date().isoformat() + "T00:00:00.000Z"
-    if not path.exists():
-        path.write_text(default + "\n", encoding="utf-8")
-        return default
-    val = path.read_text(encoding="utf-8").strip()
-    return val if val else default
-
-
-def save_last_timestamp(data_dir: str, ts: str) -> None:
-    (Path(data_dir) / STATE_FILE).write_text(ts.strip() + "\n", encoding="utf-8")
-
-
-# ---------------------------------------------------------------------------
 # Date range helpers
 # ---------------------------------------------------------------------------
+
+from datetime import date
+
 
 def parse_date(s: str | None) -> date | None:
     if not s:
@@ -120,14 +72,14 @@ def asset_in_range(time_str: str, since: str | None, until: str | None) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Thumbnail fetch + CLIP embedding
+# Thumbnail fetch and CLIP embedding
 # ---------------------------------------------------------------------------
 
 def fetch_thumbnail(asset_id: str) -> Image.Image | None:
     try:
         r = requests.get(
-            f"{IMMICH_BASE}/api/assets/{asset_id}/thumbnail?size=preview",
-            headers={"x-api-key": IMMICH_API_KEY},
+            f"{imm.IMMICH_URL}/api/assets/{asset_id}/thumbnail?size=preview",
+            headers={"x-api-key": imm.IMMICH_API_KEY},
             timeout=15,
         )
         if r.status_code == 200 and r.content:
@@ -152,9 +104,7 @@ def embed_image(img: Image.Image) -> np.ndarray | None:
 
 def embed_asset(asset_id: str) -> np.ndarray | None:
     img = fetch_thumbnail(asset_id)
-    if img is None:
-        return None
-    return embed_image(img)
+    return embed_image(img) if img is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -182,8 +132,16 @@ def build_classifier(
             else:
                 log.warning(f"  Could not embed ref {aid} for '{name}'")
 
-    # Embed negatives as the unknown class
+    # Balance negatives to ~3x total pet refs
+    total_refs = sum(len(ids) for ids in ref_ids_per_pet.values())
     if negative_ids:
+        target = total_refs * 3
+        if len(negative_ids) > target:
+            negative_ids = random.sample(negative_ids, target)
+            log.info(f"Subsampled negatives to {target} (3x {total_refs} refs)")
+        elif len(negative_ids) < total_refs * 2:
+            log.warning(f"{len(negative_ids)} negatives for {total_refs} refs — aim for {total_refs * 2}-{target} for best accuracy")
+
         log.info(f"Embedding {len(negative_ids)} negative samples...")
         for aid in negative_ids:
             vec = embed_asset(aid)
@@ -198,7 +156,6 @@ def build_classifier(
     X = np.array(all_vecs, dtype=np.float64)
     y = np.array(all_labels, dtype=np.intp)
 
-    # If unknown class has no real samples, add a synthetic zero vector
     if unknown_idx not in y:
         X = np.vstack([X, np.zeros((1, X.shape[1]))])
         y = np.append(y, unknown_idx)
@@ -223,31 +180,21 @@ def classify(vec, names, clf, scaler) -> tuple[str, float]:
 # ---------------------------------------------------------------------------
 
 def post_face(asset_id: str, person_id: str) -> str | None:
-    """Returns face_id on success, None on failure.
-    Immich returns 201 with empty body, so we fetch face_id via GET after creation."""
+    """Returns face_id on success, None on failure."""
     try:
         r = requests.post(
-            f"{IMMICH_BASE}/api/faces",
-            json={
-                "assetId": asset_id,
-                "personId": person_id,
-                "width": FACE_BOX_SIZE, "height": FACE_BOX_SIZE,
-                "imageWidth": FACE_BOX_SIZE, "imageHeight": FACE_BOX_SIZE,
-                "x": 0, "y": 0,
-            },
-            headers={"x-api-key": IMMICH_API_KEY, "Content-Type": "application/json"},
+            f"{imm.IMMICH_URL}/api/faces",
+            json={"assetId": asset_id, "personId": person_id,
+                  "width": imm.FACE_BOX_SIZE, "height": imm.FACE_BOX_SIZE,
+                  "imageWidth": imm.FACE_BOX_SIZE, "imageHeight": imm.FACE_BOX_SIZE,
+                  "x": 0, "y": 0},
+            headers={**imm.headers(), "Content-Type": "application/json"},
             timeout=30,
         )
         if r.status_code not in (200, 201):
             log.warning(f"post_face {asset_id} -> {r.status_code}: {r.text[:200]}")
             return None
-        # Fetch face_id via GET since POST returns empty body
-        fr = requests.get(
-            f"{IMMICH_BASE}/api/faces",
-            headers={"x-api-key": IMMICH_API_KEY},
-            params={"id": asset_id},
-            timeout=15,
-        )
+        fr = requests.get(f"{imm.IMMICH_URL}/api/faces", headers=imm.headers(), params={"id": asset_id}, timeout=15)
         if fr.status_code == 200:
             for face in fr.json():
                 if face.get("person", {}).get("id") == person_id:
@@ -265,17 +212,31 @@ def post_face(asset_id: str, person_id: str) -> str | None:
 
 def run_poll_cycle(data_dir: str) -> None:
     log.info(f"Poll cycle | threshold={THRESHOLD} dry_run={DRY_RUN}")
+    dd = Path(data_dir)
+    now = datetime.now(timezone.utc).isoformat()
+    data.write_poll_status(dd, {"status": "running", "started_at": now})
 
-    config = load_config(data_dir)
+    counts = {"added": 0, "low_confidence": 0, "unknown": 0,
+              "out_of_range": 0, "already_tagged": 0, "failed": 0, "no_thumb": 0}
+    try:
+        _run_poll_cycle(dd, counts)
+    except Exception as e:
+        data.write_poll_status(dd, {"status": "error", "ran_at": datetime.now(timezone.utc).isoformat(), "error": str(e), "counts": counts})
+        raise
+    else:
+        data.write_poll_status(dd, {"status": "idle", "ran_at": datetime.now(timezone.utc).isoformat(), "counts": counts})
+
+
+def _run_poll_cycle(dd: Path, counts: dict) -> None:
+    config = data.load_config(dd)
     if not config:
         log.warning("config.json empty or missing, no pets configured yet.")
         return
 
     all_pet_names = list(config.keys())
-    all_ref_ids = {name: load_ref_ids(data_dir, name) for name in all_pet_names}
+    all_ref_ids = {name: data.load_pet_asset_ids(name, dd) for name in all_pet_names}
 
-    # Skip pets with no refs, they would pollute the classifier
-    pet_names = [n for n in all_pet_names if len(all_ref_ids.get(n, [])) > 0]
+    pet_names = [n for n in all_pet_names if all_ref_ids.get(n)]
     ref_ids_per_pet = {n: all_ref_ids[n] for n in pet_names}
     skipped = [n for n in all_pet_names if n not in pet_names]
 
@@ -287,7 +248,7 @@ def run_poll_cycle(data_dir: str) -> None:
 
     log.info(f"Pets: {', '.join(f'{n}({len(ref_ids_per_pet[n])} refs)' for n in pet_names)}")
 
-    negative_ids = load_negative_ids(data_dir)
+    negative_ids = data.load_negative_ids(dd)
     if negative_ids:
         log.info(f"Loaded {len(negative_ids)} negative samples")
 
@@ -296,20 +257,18 @@ def run_poll_cycle(data_dir: str) -> None:
         return
     names, clf, scaler = result
 
-    last_ts = load_last_timestamp(data_dir)
+    last_ts = data.load_last_timestamp(dd)
     log.info(f"Fetching assets taken after: {last_ts}")
 
     t0 = time.time()
-    assets = fetch_assets_taken_after(last_ts)
+    assets = imm.fetch_assets_taken_after(last_ts)
     log.info(f"Fetched {len(assets)} assets in {time.time()-t0:.1f}s")
 
     if not assets:
         log.info("No new assets.")
-        save_last_timestamp(data_dir, datetime.now(timezone.utc).isoformat())
+        data.save_last_timestamp(datetime.now(timezone.utc).isoformat(), dd)
         return
 
-    counts = {"low_confidence": 0, "unknown": 0, "out_of_range": 0,
-              "already_tagged": 0, "added": 0, "failed": 0, "no_thumb": 0}
     latest_ts = last_ts
 
     for aid, time_str in assets:
@@ -341,12 +300,12 @@ def run_poll_cycle(data_dir: str) -> None:
             log.warning(f"Pet '{pet_name}' has no person_id in config.")
             continue
 
-        existing = fetch_asset_face_person_ids(aid)
+        existing = imm.fetch_asset_face_person_ids(aid)
         if person_id in existing:
             counts["already_tagged"] += 1
             continue
 
-        log.info(f"{IMMICH_BASE}/search/photos/{aid} -> {pet_name} ({prob:.3f}) | {time_str[:10]}")
+        log.info(f"{imm.IMMICH_URL}/search/photos/{aid} -> {pet_name} ({prob:.3f}) | {time_str[:10]}")
 
         if DRY_RUN:
             log.info(f"  dry-run: would add {pet_name}")
@@ -361,5 +320,5 @@ def run_poll_cycle(data_dir: str) -> None:
     log.info(f"Summary: {counts}")
 
     if not DRY_RUN:
-        save_last_timestamp(data_dir, latest_ts)
+        data.save_last_timestamp(latest_ts, dd)
         log.info(f"Saved timestamp: {latest_ts}")

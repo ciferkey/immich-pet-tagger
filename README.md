@@ -105,6 +105,7 @@ After the next poll cycle (within 5 minutes), your pet should appear in Immich's
 |---|---|---|
 | `IMMICH_URL` | required | Base URL of your Immich instance |
 | `IMMICH_API_KEY` | required | Immich API key |
+| `IMMICH_EXTERNAL_URL` | `http://localhost:2283` | Immich URL as seen from your browser, used for links |
 | `POLL_INTERVAL` | `300` | Seconds between scans for new photos |
 | `THRESHOLD` | `0.92` | Min confidence (0–1) to tag a photo |
 | `DRY_RUN` | `false` | Classify but don't write to Immich |
@@ -127,9 +128,9 @@ Then restart the container. Note: large libraries will take time to process on C
 
 ## Limitations & roadmap
 
-- **One pet per photo**: when multiple pets appear in the same photo, only the highest-confidence match is tagged. YOLO-based multi-pet detection is planned
+- **One pet per photo**: when multiple pets appear in the same photo, only the highest-confidence match is tagged. YOLO-based multi-pet detection is planned for v1.1
 - **Polling only**: photos are processed within 5 minutes of upload. Native event-based triggering will be added when Immich's Workflows feature ships
-- **Search pagination**: search results are capped at 60 photos. Pagination is planned
+- **Search pagination**: search results are capped at 60 photos. Full pagination is planned for v1.1
 - **CPU only**: CLIP runs on CPU by default. If CUDA is available it will be used automatically, but GPU support is not officially tested
 
 ## Troubleshooting

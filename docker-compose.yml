@@ -4,23 +4,29 @@ services:
     container_name: immich-pet-tagger
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8000:8000"       # Enrollment UI
     environment:
-      - IMMICH_URL=http://immich-server:2283     # Use your Immich container name or IP
-      - IMMICH_API_KEY=                          # Paste your Immich API key here
-      - POLL_INTERVAL=300                        # Seconds between scans for new photos
-      - THRESHOLD=0.92                           # Min confidence (0-1) to tag a photo
-      # - DRY_RUN=true                           # Uncomment to classify without writing to Immich
-      # - CLIP_MODEL=ViT-B-16                    # CLIP model (default matches Immich)
+      - IMMICH_URL=http://immich-server:2283     # Change if Immich is on a different host/port
+      - IMMICH_API_KEY=your_api_key_here
+      - IMMICH_EXTERNAL_URL=http://localhost:2283 # Immich URL as seen from your browser
+      - POLL_INTERVAL=300                        # Seconds between scans
+      - THRESHOLD=0.92                           # Min confidence to assign a face
+      # - DRY_RUN=true                           # Uncomment to disable writing to Immich
+      # CLIP model settings (optional — defaults match Immich's built-in model)
+      # - CLIP_MODEL=ViT-B-16
       # - CLIP_PRETRAINED=openai
     volumes:
-      # Mount your data directory here. This stores pet references, config, and state.
-      # Windows:   - C:/Users/yourname/immich-pet-tagger/data:/data
-      # Linux/macOS: - /home/yourname/immich-pet-tagger/data:/data
+      # This is where pet folders (luna/, pixel/) and config.json live.
+      # Windows: use forward slashes, e.g.:
+      #   - C:/Users/yourname/immich-pet-tagger/data:/data
+      # Linux/macOS:
+      #   - /home/yourname/immich-pet-tagger/data:/data
       - ./data:/data
     networks:
-      - immich_default
+      - immich_default           # Must match the network name in your Immich compose file
 
+# If you run this compose file standalone (not merged with Immich's compose),
+# define the network here and set it as external if Immich already created it.
 networks:
   immich_default:
-    external: true    # Must match your Immich Docker network. Run "docker network ls" to find it
+    external: true             # Remove this line if running a standalone test without Immich
