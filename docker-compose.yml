@@ -1,0 +1,26 @@
+services:
+  immich-pet-tagger:
+    build: .
+    container_name: immich-pet-tagger
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - IMMICH_URL=http://immich-server:2283     # Use your Immich container name or IP
+      - IMMICH_API_KEY=                          # Paste your Immich API key here
+      - POLL_INTERVAL=300                        # Seconds between scans for new photos
+      - THRESHOLD=0.92                           # Min confidence (0-1) to tag a photo
+      # - DRY_RUN=true                           # Uncomment to classify without writing to Immich
+      # - CLIP_MODEL=ViT-B-16                    # CLIP model (default matches Immich)
+      # - CLIP_PRETRAINED=openai
+    volumes:
+      # Mount your data directory here. This stores pet references, config, and state.
+      # Windows:   - C:/Users/yourname/immich-pet-tagger/data:/data
+      # Linux/macOS: - /home/yourname/immich-pet-tagger/data:/data
+      - ./data:/data
+    networks:
+      - immich_default
+
+networks:
+  immich_default:
+    external: true    # Must match your Immich Docker network. Run "docker network ls" to find it

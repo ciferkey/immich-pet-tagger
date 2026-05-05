@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Immich Pet Tagger</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f0f0f; --bg2: #1a1a1a; --bg3: #242424;
+    --border: rgba(255,255,255,0.08); --border2: rgba(255,255,255,0.14);
+    --text: #f0f0f0; --text2: #999; --text3: #666;
+    --accent: #7c6af7; --accent2: #5e4fd4;
+    --success: #3da87a; --danger: #c94a4a;
+    --radius: 10px; --radius-sm: 6px;
+  }
+  body { font-family: 'SF Pro Display','Segoe UI',system-ui,sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; font-size: 14px; line-height: 1.5; }
+  .shell { display: flex; height: 100vh; overflow: hidden; }
+  .sidebar { width: 240px; min-width: 240px; background: var(--bg2); border-right: 0.5px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  .sidebar-header { padding: 20px 16px 12px; border-bottom: 0.5px solid var(--border); }
+  .logo { font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-bottom: 2px; }
+  .logo-sub { font-size: 11px; color: var(--text3); }
+  .pets-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .pet-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--radius-sm); cursor: pointer; transition: background 0.1s; border: 0.5px solid transparent; }
+  .pet-item:hover { background: var(--bg3); }
+  .pet-item.active { background: var(--bg3); border-color: var(--border2); }
+  .pet-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--accent2); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; flex-shrink: 0; overflow: hidden; }
+  .pet-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pet-info { flex: 1; min-width: 0; }
+  .pet-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pet-count { font-size: 11px; color: var(--text3); }
+  .add-pet-btn { margin: 8px; padding: 8px 10px; background: transparent; border: 0.5px dashed var(--border2); border-radius: var(--radius-sm); color: var(--text2); cursor: pointer; font-size: 12px; width: calc(100% - 16px); text-align: left; transition: all 0.15s; }
+  .add-pet-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { padding: 14px 20px; border-bottom: 0.5px solid var(--border); display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+  .search-wrap { flex: 1; position: relative; }
+  .search-wrap input { width: 100%; background: var(--bg3); border: 0.5px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-size: 13px; padding: 7px 12px 7px 32px; outline: none; transition: border-color 0.15s; }
+  .search-wrap input:focus { border-color: var(--accent); }
+  .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text3); font-size: 13px; pointer-events: none; }
+  .btn { padding: 7px 14px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 500; cursor: pointer; border: 0.5px solid var(--border2); background: transparent; color: var(--text); transition: all 0.15s; white-space: nowrap; }
+  .btn:hover { background: var(--bg3); border-color: var(--accent); color: var(--accent); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+  .content { flex: 1; display: flex; overflow: hidden; }
+  .results-panel { flex: 1; overflow-y: auto; padding: 16px; }
+  .panel-label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text3); margin-bottom: 12px; }
+  .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
+  .photo-thumb { aspect-ratio: 1; border-radius: var(--radius-sm); overflow: hidden; cursor: pointer; position: relative; border: 0.5px solid var(--border); transition: border-color 0.1s; background: var(--bg3); }
+  .photo-thumb:hover { border-color: var(--accent); }
+  .photo-thumb.selected { border: 2px solid var(--accent); }
+  .photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+  .photo-check { position: absolute; top: 4px; right: 4px; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); display: none; align-items: center; justify-content: center; font-size: 10px; color: #fff; }
+  .photo-thumb.selected .photo-check { display: flex; }
+  .photo-thumb.is-ref .photo-check { display: flex; background: var(--success); }
+  .photo-thumb.is-ref.selected .photo-check { background: var(--accent); }
+  .refs-panel { width: 220px; min-width: 220px; border-left: 0.5px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  .refs-header { padding: 12px 14px; border-bottom: 0.5px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .refs-grid { flex: 1; overflow-y: auto; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 5px; align-content: start; }
+  .ref-thumb { aspect-ratio: 1; border-radius: 5px; overflow: hidden; position: relative; background: var(--bg3); border: 0.5px solid var(--border); }
+  .ref-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .ref-remove { position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; border-radius: 50%; background: rgba(0,0,0,0.7); border: none; color: #fff; font-size: 10px; cursor: pointer; display: none; align-items: center; justify-content: center; line-height: 1; }
+  .ref-thumb:hover .ref-remove { display: flex; }
+  .refs-actions { padding: 10px; border-top: 0.5px solid var(--border); }
+  .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text3); gap: 8px; text-align: center; padding: 24px; }
+  .empty-icon { font-size: 32px; opacity: 0.4; }
+  .empty-title { font-size: 13px; font-weight: 500; color: var(--text2); }
+  .empty-sub { font-size: 12px; }
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.15s; }
+  .modal-backdrop.open { opacity: 1; pointer-events: all; }
+  .modal { background: var(--bg2); border: 0.5px solid var(--border2); border-radius: var(--radius); padding: 24px; width: 340px; transform: translateY(8px); transition: transform 0.15s; }
+  .modal-backdrop.open .modal { transform: translateY(0); }
+  .modal h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 11px; color: var(--text2); margin-bottom: 5px; }
+  .field input { width: 100%; background: var(--bg3); border: 0.5px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-size: 13px; padding: 7px 10px; outline: none; }
+  .field input:focus { border-color: var(--accent); }
+  .field .hint { font-size: 11px; color: var(--text3); margin-top: 4px; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+  .modal-error { font-size: 12px; color: var(--danger); margin-top: 12px; min-height: 16px; }
+  .toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg2); border: 0.5px solid var(--border2); border-radius: var(--radius-sm); padding: 10px 16px; font-size: 13px; z-index: 200; transform: translateY(60px); transition: transform 0.2s; pointer-events: none; }
+  .toast.show { transform: translateY(0); }
+  .toast.success { border-color: var(--success); color: var(--success); }
+  .toast.error { border-color: var(--danger); color: var(--danger); }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+  .loading { color: var(--text3); font-size: 12px; padding: 16px; }
+  .neg-panel { border-top: 0.5px solid var(--border); padding: 10px; }
+  .neg-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .neg-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .neg-thumb { aspect-ratio: 1; border-radius: 4px; overflow: hidden; position: relative; background: var(--bg3); border: 0.5px solid var(--border); }
+  .neg-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .neg-thumb .ref-remove { position: absolute; top: 2px; right: 2px; width: 14px; height: 14px; border-radius: 50%; background: rgba(0,0,0,0.7); border: none; color: #fff; font-size: 9px; cursor: pointer; display: none; align-items: center; justify-content: center; }
+  .neg-thumb:hover .ref-remove { display: flex; }
+  .photo-thumb.is-neg .photo-check { display: flex; background: var(--danger); }
+  .tag { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 3px; background: var(--bg3); color: var(--text3); border: 0.5px solid var(--border); margin-left: 4px; }
+  .pet-delete { width: 20px; height: 20px; border-radius: 4px; background: transparent; border: none; color: var(--text3); font-size: 13px; cursor: pointer; display: none; align-items: center; justify-content: center; flex-shrink: 0; transition: color 0.1s; }
+  .pet-edit { width: 20px; height: 20px; border-radius: 4px; background: transparent; border: none; color: var(--text3); font-size: 11px; cursor: pointer; display: none; align-items: center; justify-content: center; flex-shrink: 0; transition: color 0.1s; }
+  .pet-item:hover .pet-delete, .pet-item:hover .pet-edit { display: flex; }
+  .pet-delete:hover { color: var(--danger) !important; }
+  .pet-edit:hover { color: var(--accent) !important; }
+  .modal-warning { background: rgba(201,74,74,0.08); border: 0.5px solid rgba(201,74,74,0.3); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 12px; color: #e08080; margin-bottom: 16px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">Pet Tagger</div>
+      <div class="logo-sub">for Immich</div>
+    </div>
+    <div class="pets-list" id="petsList"></div>
+    <button class="add-pet-btn" onclick="openAddPet()">+ Add pet</button>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <div class="search-wrap">
+        <span class="search-icon">⌕</span>
+        <input type="text" id="searchInput" placeholder="Search Immich… e.g. black cat on sofa" onkeydown="if(event.key==='Enter') doSearch()">
+      </div>
+      <button class="btn" onclick="doSearch()">Search</button>
+      <span id="selCount" style="font-size:12px; color:var(--text3); min-width:60px;"></span>
+      <button class="btn btn-primary" id="assignBtn" onclick="assignSelected()" style="display:none">Add to pet →</button>
+    </div>
+    <div class="content">
+      <div class="results-panel">
+        <div class="panel-label" id="resultsLabel">Search to find photos</div>
+        <div class="photo-grid" id="photoGrid">
+          <div class="empty" style="grid-column:1/-1; height:300px;">
+            <div class="empty-icon">🔍</div>
+            <div class="empty-title">Search your Immich library</div>
+            <div class="empty-sub">Type a description above, then press Enter</div>
+          </div>
+        </div>
+      </div>
+      <div class="refs-panel">
+        <div class="refs-header">
+          <span style="font-size:12px; font-weight:500;" id="refsTitle">No pet selected</span>
+        </div>
+        <div class="refs-grid" id="refsGrid">
+          <div class="empty" style="grid-column:1/-1; height:200px;">
+            <div class="empty-sub">Select a pet</div>
+          </div>
+        </div>
+
+        <div class="neg-panel">
+          <div class="neg-header">
+            <span style="font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--text3);">Negatives</span>
+            <span style="font-size:11px; color:var(--text3);" id="negCount">0</span>
+          </div>
+          <div class="neg-grid" id="negGrid"></div>
+          <button class="btn" style="width:100%; font-size:11px; margin-top:8px;" id="addNegBtn" onclick="addSelectedAsNegatives()" style="display:none">Mark selected as unknown</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="addPetModal">
+  <div class="modal">
+    <h2>Add a pet</h2>
+    <div class="field">
+      <label>Name</label>
+      <input type="text" id="petName" placeholder="Luna" onkeydown="if(event.key==='Enter') submitAddPet()">
+    </div>
+    <div class="field">
+      <label>Photos since <span class="tag">optional</span></label>
+      <input type="date" id="petSince">
+      <div class="hint">Ignore photos taken before this date</div>
+    </div>
+    <div class="field">
+      <label>Photos until <span class="tag">optional</span></label>
+      <input type="date" id="petUntil">
+      <div class="hint">Leave empty if the pet is still around</div>
+    </div>
+    <div class="modal-error" id="addPetError"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitAddPet()">Create</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="editPetModal">
+  <div class="modal">
+    <h2>Edit pet</h2>
+    <div class="field">
+      <label>Name</label>
+      <input type="text" id="editPetName" placeholder="Luna" onkeydown="if(event.key==='Enter') submitEditPet()">
+    </div>
+    <div class="field">
+      <label>Photos since <span class="tag">optional</span></label>
+      <input type="date" id="editPetSince">
+      <div class="hint">Ignore photos taken before this date</div>
+    </div>
+    <div class="field">
+      <label>Photos until <span class="tag">optional</span></label>
+      <input type="date" id="editPetUntil">
+      <div class="hint">Leave empty if the pet is still around</div>
+    </div>
+    <div class="modal-error" id="editPetError"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeEditModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitEditPet()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="deletePetModal">
+  <div class="modal">
+    <h2>Delete pet</h2>
+    <div class="modal-warning" id="deleteWarningText"></div>
+    <div style="font-size:12px; color:var(--text2); margin-bottom:20px;">This cannot be undone.</div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeDeleteModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmDeletePet()" style="border-color:var(--danger);color:var(--danger);">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let pets = [], activePet = null, selectedIds = new Set(), refsIds = [], negIds = [];
+
+async function api(path, opts={}) {
+  const r = await fetch(path, { headers: {'Content-Type':'application/json'}, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  if (!r.ok) { const t = await r.text().catch(()=>r.statusText); throw new Error(t); }
+  return r.json();
+}
+
+function toast(msg, type='') {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.className = 'toast show' + (type ? ' '+type : '');
+  clearTimeout(el._t); el._t = setTimeout(()=>el.className='toast', 2500);
+}
+
+function initials(name) { return name.slice(0,2).toUpperCase(); }
+
+async function loadPets(keepActive = false) {
+  try {
+    const d = await api('/api/pets');
+    pets = d.pets;
+    renderSidebar();
+    // Auto-select first pet if none active
+    if (!keepActive && !activePet && pets.length > 0) {
+      await selectPet(pets[0].name);
+    }
+  }
+  catch(e) { toast('Could not load pets: '+e.message,'error'); }
+}
+
+function renderSidebar() {
+  const el = document.getElementById('petsList');
+  if (!pets.length) {
+    el.innerHTML = '<div style="padding:16px;font-size:12px;color:var(--text3);text-align:center;line-height:1.6;">No pets yet.<br>Add one to get started.</div>';
+    // Lock main UI
+    document.getElementById('searchInput').disabled = true;
+    document.getElementById('searchInput').placeholder = 'Add a pet first…';
+    document.querySelector('.topbar .btn').disabled = true;
+    document.getElementById('photoGrid').innerHTML = '<div class="empty" style="grid-column:1/-1;height:300px;"><div class="empty-icon">🐾</div><div class="empty-title">No pets yet</div><div class="empty-sub">Add a pet using the sidebar to get started</div></div>';
+    document.getElementById('refsTitle').textContent = 'No pet selected';
+    document.getElementById('refsGrid').innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-sub">Add a pet first</div></div>';
+    return;
+  }
+  // Unlock main UI
+  document.getElementById('searchInput').disabled = false;
+  document.getElementById('searchInput').placeholder = 'Search Immich… e.g. black cat on sofa';
+  document.querySelector('.topbar .btn').disabled = false;
+  el.innerHTML = pets.map(p=>`
+    <div class="pet-item ${activePet?.name===p.name?'active':''}" onclick="selectPet('${p.name}')">
+      <div class="pet-avatar">${p.person_id ? `<img src="/api/person-thumb/${p.person_id}" onerror="this.parentElement.textContent='${initials(p.name)}'" alt="">` : initials(p.name)}</div>
+      <div class="pet-info">
+        <div class="pet-name">${p.name}</div>
+        <div class="pet-count">${p.ref_count} ref${p.ref_count!==1?'s':''}</div>
+      </div>
+      <button class="pet-edit" onclick="event.stopPropagation(); openEditPet('${p.name}')" title="Edit">✎</button>
+      <button class="pet-delete" onclick="event.stopPropagation(); openDeletePet('${p.name}')" title="Delete">✕</button>
+    </div>`).join('');
+}
+
+function clearSearch() {
+  document.getElementById('searchInput').value = '';
+  document.getElementById('resultsLabel').textContent = 'Search to find photos';
+  document.getElementById('photoGrid').innerHTML = '<div class="empty" style="grid-column:1/-1; height:300px;"><div class="empty-icon">🔍</div><div class="empty-title">Search your Immich library</div><div class="empty-sub">Type a description above, then press Enter</div></div>';
+  selectedIds.clear(); updateSelUI();
+}
+
+async function selectPet(name) {
+  if (activePet?.name === name) return; // already active, nothing to do
+  if (selectedIds.size > 0) {
+    const ok = confirm(`You have ${selectedIds.size} selected photo${selectedIds.size!==1?'s':''} not yet assigned. Switch anyway?`);
+    if (!ok) return;
+  }
+  activePet = pets.find(p=>p.name===name);
+  clearSearch(); renderSidebar();
+  document.getElementById('refsTitle').textContent = name;
+  await loadRefs(name);
+  await loadNegatives();
+}
+
+async function loadRefs(name) {
+  const grid = document.getElementById('refsGrid');
+  grid.innerHTML = '<div class="loading">Loading…</div>';
+  try {
+    const d = await api(`/api/pets/${encodeURIComponent(name)}/assets`);
+    refsIds = d.assets.map(a=>a.id); renderRefs(d.assets);
+  } catch(e) { grid.innerHTML='<div class="empty" style="grid-column:1/-1"><div class="empty-sub">Error loading refs</div></div>'; }
+}
+
+function renderRefs(assets) {
+  const grid = document.getElementById('refsGrid');
+  if (!assets.length) { grid.innerHTML='<div class="empty" style="grid-column:1/-1;height:160px;"><div class="empty-sub">No references yet.<br>Search and add photos.</div></div>'; return; }
+  grid.innerHTML = assets.map(a=>`
+    <div class="ref-thumb">
+      <img src="${a.thumb}" loading="lazy" onerror="this.style.opacity=0.2">
+      <button class="ref-remove" onclick="removeRef('${a.id}')" title="Remove">✕</button>
+    </div>`).join('');
+}
+
+async function removeRef(id) {
+  if (!activePet) return;
+  try {
+    await api(`/api/pets/${encodeURIComponent(activePet.name)}/assets/${id}`, {method:'DELETE'});
+    refsIds = refsIds.filter(i=>i!==id); await loadRefs(activePet.name); await loadPets(); loadNegatives(); toast('Removed');
+  } catch(e) { toast('Error: '+e.message,'error'); }
+}
+
+async function doSearch() {
+  const q = document.getElementById('searchInput').value.trim(); if (!q) return;
+  if (!activePet) { toast('Select a pet first to scope the search', 'error'); return; }
+  const grid = document.getElementById('photoGrid'), label = document.getElementById('resultsLabel');
+  grid.innerHTML='<div class="loading" style="grid-column:1/-1">Searching…</div>';
+  label.textContent='Searching…'; selectedIds.clear(); updateSelUI();
+  try {
+    let url = `/api/search?q=${encodeURIComponent(q)}&limit=60`;
+    if (activePet?.since) url += `&since=${activePet.since}`;
+    if (activePet?.until) url += `&until=${activePet.until}`;
+    const d = await api(url);
+    const assets = d.assets;
+    label.textContent = `${assets.length} result${assets.length!==1?'s':''} for "${q}"${activePet?.since||activePet?.until?' (date filtered)':''}`; 
+    if (!assets.length) { grid.innerHTML='<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-icon">🐾</div><div class="empty-title">No results</div></div>'; return; }
+    grid.innerHTML = assets.map(a=>`
+      <div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect('${a.id}')" title="${a.filename} · ${a.date}">
+        <img src="${a.thumb}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
+        <div class="photo-check">✓</div>
+      </div>`).join('');
+    // Mark already-added refs
+    const refSet = new Set(refsIds);
+    assets.forEach(a => { if (refSet.has(a.id)) document.getElementById('th-'+a.id)?.classList.add('is-ref'); });
+    // Mark negatives
+    const negSet = new Set(negIds);
+    assets.forEach(a => { if (negSet.has(a.id)) document.getElementById('th-'+a.id)?.classList.add('is-neg'); });
+  } catch(e) {
+    label.textContent='Search failed';
+    grid.innerHTML=`<div class="empty" style="grid-column:1/-1"><div class="empty-sub">${e.message}</div></div>`;
+    toast('Search error: '+e.message,'error');
+  }
+}
+
+function toggleSelect(id) {
+  const el = document.getElementById('th-'+id); if (!el) return;
+  if (el.classList.contains('is-ref')) return; // already added, not selectable
+  if (el.classList.contains('is-neg')) return; // already a negative, not selectable
+  if (selectedIds.has(id)) { selectedIds.delete(id); el.classList.remove('selected'); }
+  else { selectedIds.add(id); el.classList.add('selected'); }
+  updateSelUI();
+}
+
+function updateSelUI() {
+  const n = selectedIds.size;
+  document.getElementById('selCount').textContent = n ? `${n} selected` : '';
+  document.getElementById('assignBtn').style.display = (n && activePet) ? '' : 'none';
+  document.getElementById('addNegBtn').style.display = n ? '' : 'none';
+}
+
+async function assignSelected() {
+  if (!activePet || !selectedIds.size) return;
+  const newIds = [...new Set([...refsIds, ...selectedIds])];
+  try {
+    await api(`/api/pets/${encodeURIComponent(activePet.name)}/assets`, {method:'POST', body:{asset_ids:newIds}});
+    refsIds = newIds; selectedIds.clear(); updateSelUI();
+    document.querySelectorAll('.photo-thumb.selected').forEach(el=>{
+      el.classList.remove('selected'); el.classList.add('is-ref');
+    });
+    await loadRefs(activePet.name); await loadPets(); loadNegatives();
+    toast(`Added to ${activePet.name}`,'success');
+  } catch(e) { toast('Error: '+e.message,'error'); }
+}
+
+
+
+function openAddPet() {
+  document.getElementById('petName').value=''; document.getElementById('petSince').value=''; document.getElementById('petUntil').value='';
+  document.getElementById('addPetModal').classList.add('open');
+  setTimeout(()=>document.getElementById('petName').focus(),100);
+}
+
+function anyInvalidChar(s) { return /[\/\\.]/.test(s); }
+function modalError(id, msg) { document.getElementById(id).textContent = msg; }
+function clearModalError(id) { document.getElementById(id).textContent = ''; }
+function closeModal() { document.getElementById('addPetModal').classList.remove('open'); clearModalError('addPetError'); }
+
+async function submitAddPet() {
+  clearModalError('addPetError');
+  const name = document.getElementById('petName').value.trim();
+  if (!name) { modalError('addPetError', 'Name cannot be empty'); return; }
+  if (/[\/\\.]/.test(name)) { modalError('addPetError', 'Name cannot contain / \\ or .'); return; }
+  const sinceRaw = document.getElementById('petSince').value;
+  const untilRaw = document.getElementById('petUntil').value;
+  const sinceEl = document.getElementById('petSince');
+  const untilEl = document.getElementById('petUntil');
+  if (sinceEl.value === '' && sinceEl.validity && !sinceEl.validity.valid && sinceEl.validity.badInput) { modalError('addPetError', 'Incomplete “since” date'); return; }
+  if (untilEl.value === '' && untilEl.validity && !untilEl.validity.valid && untilEl.validity.badInput) { modalError('addPetError', 'Incomplete “until” date'); return; }
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (sinceRaw && !dateRe.test(sinceRaw)) { modalError('addPetError', 'Invalid “since” date. Use YYYY-MM-DD'); return; }
+  if (untilRaw && !dateRe.test(untilRaw)) { modalError('addPetError', 'Invalid “until” date. Use YYYY-MM-DD'); return; }
+  if (sinceRaw && untilRaw && sinceRaw > untilRaw) { modalError('addPetError', '“Since” must be before “until”'); return; }
+  const since = sinceRaw||null, until = untilRaw||null;
+  try {
+    await api('/api/pets', {method:'POST', body:{name, since, until}});
+    closeModal(); await loadPets(); loadNegatives(); toast(`Created ${name}`,'success'); selectPet(name);
+  } catch(e) { toast('Error: '+e.message,'error'); }
+}
+
+async function loadNegatives() {
+  try {
+    const d = await api('/api/negatives');
+    negIds = d.assets.map(a=>a.id);
+    document.getElementById('negCount').textContent = negIds.length;
+    const grid = document.getElementById('negGrid');
+    if (!negIds.length) { grid.innerHTML=''; return; }
+    grid.innerHTML = d.assets.slice(0,8).map(a=>`
+      <div class="neg-thumb">
+        <img src="${a.thumb}" loading="lazy" onerror="this.style.opacity=0.2">
+        <button class="ref-remove" onclick="removeNegative('${a.id}')" title="Remove">✕</button>
+      </div>`).join('');
+    if (negIds.length > 8) grid.innerHTML += `<div style="grid-column:1/-1;font-size:10px;color:var(--text3);text-align:center;padding:4px;">+${negIds.length-8} more</div>`;
+  } catch(e) { log.warn('loadNegatives:', e); }
+}
+
+async function addSelectedAsNegatives() {
+  if (!selectedIds.size) return;
+  try {
+    await api('/api/negatives', {method:'POST', body:{asset_ids:[...selectedIds]}});
+    negIds = [...new Set([...negIds, ...selectedIds])];
+    document.querySelectorAll('.photo-thumb.selected').forEach(el=>{
+      el.classList.remove('selected'); el.classList.add('is-neg');
+    });
+    selectedIds.clear(); updateSelUI();
+    await loadNegatives();
+    toast('Marked as unknown', 'success');
+  } catch(e) { toast('Error: '+e.message, 'error'); }
+}
+
+async function removeNegative(id) {
+  try {
+    await api(`/api/negatives/${id}`, {method:'DELETE'});
+    negIds = negIds.filter(i=>i!==id);
+    await loadNegatives();
+    // Unmark in search results if visible
+    document.getElementById('th-'+id)?.classList.remove('is-neg');
+    toast('Removed from negatives');
+  } catch(e) { toast('Error: '+e.message, 'error'); }
+}
+
+document.getElementById('addPetModal').addEventListener('click', function(e) { if(e.target===this) closeModal(); });
+document.getElementById('editPetModal').addEventListener('click', function(e) { if(e.target===this) closeEditModal(); });
+
+let _petToEdit = null;
+
+function openEditPet(name) {
+  _petToEdit = name;
+  const p = pets.find(p=>p.name===name);
+  document.getElementById('editPetName').value = p.name;
+  document.getElementById('editPetSince').value = p.since || '';
+  document.getElementById('editPetUntil').value = p.until || '';
+  document.getElementById('editPetModal').classList.add('open');
+  setTimeout(()=>document.getElementById('editPetName').focus(), 100);
+}
+
+function closeEditModal() {
+  document.getElementById('editPetModal').classList.remove('open');
+  _petToEdit = null;
+}
+
+async function submitEditPet() {
+  if (!_petToEdit) return;
+  clearModalError('editPetError');
+  const name = document.getElementById('editPetName').value.trim();
+  if (!name) { modalError('editPetError', 'Name cannot be empty'); return; }
+  if (/[\/\\.]/.test(name)) { modalError('editPetError', 'Name cannot contain / \\ or .'); return; }
+  const sinceRaw = document.getElementById('editPetSince').value;
+  const untilRaw = document.getElementById('editPetUntil').value;
+  const sinceEl = document.getElementById('editPetSince');
+  const untilEl = document.getElementById('editPetUntil');
+  if (sinceEl.value === '' && sinceEl.validity && !sinceEl.validity.valid && sinceEl.validity.badInput) { modalError('editPetError', 'Incomplete “since” date'); return; }
+  if (untilEl.value === '' && untilEl.validity && !untilEl.validity.valid && untilEl.validity.badInput) { modalError('editPetError', 'Incomplete “until” date'); return; }
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (sinceRaw && !dateRe.test(sinceRaw)) { modalError('editPetError', 'Invalid “since” date. Use YYYY-MM-DD'); return; }
+  if (untilRaw && !dateRe.test(untilRaw)) { modalError('editPetError', 'Invalid “until” date. Use YYYY-MM-DD'); return; }
+  if (sinceRaw && untilRaw && sinceRaw > untilRaw) { modalError('editPetError', '“Since” must be before “until”'); return; }
+  try {
+    await api(`/api/pets/${encodeURIComponent(_petToEdit)}`, {
+      method: 'PATCH',
+      body: { name, since: sinceRaw||null, until: untilRaw||null }
+    });
+    closeEditModal();
+    const wasActive = activePet?.name === _petToEdit;
+    activePet = null;
+    clearSearch();
+    await loadPets();
+    if (wasActive) await selectPet(name);
+    toast('Saved', 'success');
+  } catch(e) { toast('Error: '+e.message, 'error'); }
+}
+document.getElementById('deletePetModal').addEventListener('click', function(e) { if(e.target===this) closeDeleteModal(); });
+
+let _petToDelete = null;
+
+function openDeletePet(name) {
+  _petToDelete = name;
+  const p = pets.find(p=>p.name===name);
+  const refs = p ? p.ref_count : 0;
+  document.getElementById('deleteWarningText').textContent =
+    `"${name}" will be permanently removed from Immich and all ${refs} reference photo${refs!==1?'s':''} will be untagged.`;
+  document.getElementById('deletePetModal').classList.add('open');
+}
+
+function closeDeleteModal() {
+  document.getElementById('deletePetModal').classList.remove('open');
+  _petToDelete = null;
+}
+
+async function confirmDeletePet() {
+  if (!_petToDelete) return;
+  const name = _petToDelete;
+  closeDeleteModal();
+  try {
+    await api(`/api/pets/${encodeURIComponent(name)}`, {method:'DELETE'});
+    if (activePet?.name === name) {
+      activePet = null;
+      document.getElementById('refsTitle').textContent = 'No pet selected';
+      document.getElementById('refsGrid').innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-sub">Select a pet</div></div>';
+    }
+    await loadPets(); loadNegatives();
+    toast(`Deleted ${name}`, 'success');
+  } catch(e) { toast('Error: '+e.message, 'error'); }
+}
+
+loadPets(); loadNegatives();
+</script>
+</body>
+</html>
