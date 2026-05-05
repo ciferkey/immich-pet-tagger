@@ -452,6 +452,43 @@ async def remove_pet_asset(name: str, asset_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Scan timestamp
+# ---------------------------------------------------------------------------
+
+STATE_FILE = DATA_DIR / "last_scan_timestamp.txt"
+
+@router.get("/poll-status")
+async def get_poll_status():
+    path = DATA_DIR / "last_poll_status.json"
+    if not path.exists():
+        return {"status": "never"}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@router.get("/timestamp")
+async def get_timestamp():
+    if STATE_FILE.exists():
+        val = STATE_FILE.read_text(encoding="utf-8").strip()
+    else:
+        val = ""
+    return {"timestamp": val}
+
+
+class TimestampBody(BaseModel):
+    date: str  # YYYY-MM-DD
+
+@router.post("/timestamp")
+async def set_timestamp(body: TimestampBody):
+    import re
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.date):
+        raise HTTPException(status_code=400, detail="Date must be YYYY-MM-DD")
+    ts = body.date + "T00:00:00.000Z"
+    STATE_FILE.write_text(ts + "\n", encoding="utf-8")
+    log.info(f"Scan timestamp reset to {ts}")
+    return {"timestamp": ts}
+
+
+# ---------------------------------------------------------------------------
 # Thumbnail proxy
 # ---------------------------------------------------------------------------
 

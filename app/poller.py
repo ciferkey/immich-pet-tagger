@@ -274,9 +274,41 @@ def post_face(asset_id: str, person_id: str) -> str | None:
 # Main poll cycle
 # ---------------------------------------------------------------------------
 
+def write_poll_status(data_dir: str, payload: dict) -> None:
+    try:
+        (Path(data_dir) / "last_poll_status.json").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+
 def run_poll_cycle(data_dir: str) -> None:
     log.info(f"Poll cycle | threshold={THRESHOLD} dry_run={DRY_RUN}")
+    now = datetime.now(timezone.utc).isoformat()
+    write_poll_status(data_dir, {"status": "running", "started_at": now})
 
+    counts = {"added": 0, "low_confidence": 0, "unknown": 0,
+              "out_of_range": 0, "already_tagged": 0, "failed": 0, "no_thumb": 0}
+    try:
+        _run_poll_cycle(data_dir, counts)
+    except Exception as e:
+        write_poll_status(data_dir, {
+            "status": "error",
+            "ran_at": datetime.now(timezone.utc).isoformat(),
+            "error": str(e),
+            "counts": counts,
+        })
+        raise
+    else:
+        write_poll_status(data_dir, {
+            "status": "idle",
+            "ran_at": datetime.now(timezone.utc).isoformat(),
+            "counts": counts,
+        })
+
+
+def _run_poll_cycle(data_dir: str, counts: dict) -> None:
     config = load_config(data_dir)
     if not config:
         log.warning("config.json empty or missing, no pets configured yet.")
@@ -319,8 +351,6 @@ def run_poll_cycle(data_dir: str) -> None:
         save_last_timestamp(data_dir, datetime.now(timezone.utc).isoformat())
         return
 
-    counts = {"low_confidence": 0, "unknown": 0, "out_of_range": 0,
-              "already_tagged": 0, "added": 0, "failed": 0, "no_thumb": 0}
     latest_ts = last_ts
 
     for aid, time_str in assets:

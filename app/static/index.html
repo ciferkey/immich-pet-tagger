@@ -94,6 +94,27 @@
   .neg-thumb:hover .ref-remove { display: flex; }
   .photo-thumb.is-neg .photo-check { display: flex; background: var(--danger); }
   .tag { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 3px; background: var(--bg3); color: var(--text3); border: 0.5px solid var(--border); margin-left: 4px; }
+  .scan-panel { border-top: 0.5px solid var(--border); padding: 10px; }
+  .scan-panel label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text3); display: block; margin-bottom: 6px; }
+  .scan-row { display: flex; gap: 6px; align-items: center; }
+  .scan-row input[type=date] { flex: 1; background: var(--bg3); border: 0.5px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-size: 11px; padding: 5px 7px; outline: none; min-width: 0; }
+  .scan-row input[type=date]:focus { border-color: var(--accent); }
+  .poll-panel { border-top: 0.5px solid var(--border); padding: 10px; }
+  .poll-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .poll-header label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text3); }
+  .poll-badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 500; }
+  .poll-badge.running { background: rgba(124,106,247,0.15); color: var(--accent); }
+  .poll-badge.idle { background: rgba(61,168,122,0.12); color: var(--success); }
+  .poll-badge.error { background: rgba(201,74,74,0.12); color: var(--danger); }
+  .poll-badge.never { background: var(--bg3); color: var(--text3); }
+  .poll-time { font-size: 11px; color: var(--text3); margin-bottom: 8px; }
+  .poll-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 8px; }
+  .poll-stat { display: flex; justify-content: space-between; font-size: 11px; }
+  .poll-stat-label { color: var(--text3); }
+  .poll-stat-val { font-weight: 500; }
+  .poll-stat-val.nonzero-good { color: var(--success); }
+  .poll-stat-val.nonzero-warn { color: #c9954a; }
+  .poll-stat-val.nonzero-bad { color: var(--danger); }
   .pet-delete { width: 20px; height: 20px; border-radius: 4px; background: transparent; border: none; color: var(--text3); font-size: 13px; cursor: pointer; display: none; align-items: center; justify-content: center; flex-shrink: 0; transition: color 0.1s; }
   .pet-edit { width: 20px; height: 20px; border-radius: 4px; background: transparent; border: none; color: var(--text3); font-size: 11px; cursor: pointer; display: none; align-items: center; justify-content: center; flex-shrink: 0; transition: color 0.1s; }
   .pet-item:hover .pet-delete, .pet-item:hover .pet-edit { display: flex; }
@@ -143,6 +164,14 @@
           </div>
         </div>
 
+        <div class="poll-panel">
+          <div class="poll-header">
+            <label>Last scan</label>
+            <span class="poll-badge never" id="pollBadge">never</span>
+          </div>
+          <div class="poll-time" id="pollTime"></div>
+          <div class="poll-stats" id="pollStats"></div>
+        </div>
         <div class="neg-panel">
           <div class="neg-header">
             <span style="font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--text3);">Negatives</span>
@@ -150,6 +179,13 @@
           </div>
           <div class="neg-grid" id="negGrid"></div>
           <button class="btn" style="width:100%; font-size:11px; margin-top:8px;" id="addNegBtn" onclick="addSelectedAsNegatives()" style="display:none">Mark selected as unknown</button>
+        </div>
+        <div class="scan-panel">
+          <label>Scan from</label>
+          <div class="scan-row">
+            <input type="date" id="scanDate">
+            <button class="btn" style="font-size:11px; padding:5px 10px;" onclick="applyTimestamp()">Apply</button>
+          </div>
         </div>
       </div>
     </div>
@@ -242,6 +278,7 @@ async function loadPets(keepActive = false) {
     const d = await api('/api/pets');
     pets = d.pets;
     renderSidebar();
+    updateNegStatus();
     // Auto-select first pet if none active
     if (!keepActive && !activePet && pets.length > 0) {
       await selectPet(pets[0].name);
@@ -446,11 +483,26 @@ async function submitAddPet() {
   } catch(e) { toast('Error: '+e.message,'error'); }
 }
 
+function updateNegStatus() {
+  const totalRefs = pets.reduce((s, p) => s + p.ref_count, 0);
+  const el = document.getElementById('negCount');
+  const count = negIds.length;
+  if (totalRefs === 0) { el.textContent = count; el.style.color = ''; return; }
+  const lo = totalRefs * 2, hi = totalRefs * 3;
+  if (count < lo) {
+    el.textContent = `${count} / ${lo}–${hi} needed`;
+    el.style.color = 'var(--danger)';
+  } else {
+    el.textContent = count;
+    el.style.color = 'var(--success)';
+  }
+}
+
 async function loadNegatives() {
   try {
     const d = await api('/api/negatives');
     negIds = d.assets.map(a=>a.id);
-    document.getElementById('negCount').textContent = negIds.length;
+    updateNegStatus();
     const grid = document.getElementById('negGrid');
     if (!negIds.length) { grid.innerHTML=''; return; }
     grid.innerHTML = d.assets.slice(0,8).map(a=>`
@@ -473,6 +525,63 @@ async function addSelectedAsNegatives() {
     selectedIds.clear(); updateSelUI();
     await loadNegatives();
     toast('Marked as unknown', 'success');
+  } catch(e) { toast('Error: '+e.message, 'error'); }
+}
+
+function relativeTime(iso) {
+  const diff = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+  return `${Math.floor(diff/86400)}d ago`;
+}
+
+async function loadPollStatus() {
+  try {
+    const d = await api('/api/poll-status');
+    const badge = document.getElementById('pollBadge');
+    const timeEl = document.getElementById('pollTime');
+    const statsEl = document.getElementById('pollStats');
+
+    badge.className = `poll-badge ${d.status}`;
+    badge.textContent = d.status === 'running' ? 'Scanning...' : d.status === 'error' ? 'Error' : d.status === 'never' ? 'Never run' : 'Idle';
+
+    if (d.ran_at) timeEl.textContent = relativeTime(d.ran_at);
+    else if (d.started_at) timeEl.textContent = `Started ${relativeTime(d.started_at)}`;
+    else timeEl.textContent = '';
+
+    if (d.counts) {
+      const c = d.counts;
+      const stat = (label, val, cls) => `<div class="poll-stat"><span class="poll-stat-label">${label}</span><span class="poll-stat-val ${val > 0 ? cls : ''}">${val}</span></div>`;
+      statsEl.innerHTML =
+        stat('Tagged', c.added, 'nonzero-good') +
+        stat('Low conf.', c.low_confidence, 'nonzero-warn') +
+        stat('Unknown', c.unknown, '') +
+        stat('Out of range', c.out_of_range, '') +
+        stat('Already tagged', c.already_tagged, '') +
+        (c.failed > 0 ? stat('Failed', c.failed, 'nonzero-bad') : '') +
+        (c.no_thumb > 0 ? stat('No thumb', c.no_thumb, 'nonzero-warn') : '');
+    } else {
+      statsEl.innerHTML = '';
+    }
+
+    if (d.error) timeEl.textContent += (timeEl.textContent ? '. ' : '') + d.error;
+  } catch(e) {}
+}
+
+async function loadTimestamp() {
+  try {
+    const d = await api('/api/timestamp');
+    if (d.timestamp) document.getElementById('scanDate').value = d.timestamp.slice(0, 10);
+  } catch(e) {}
+}
+
+async function applyTimestamp() {
+  const val = document.getElementById('scanDate').value;
+  if (!val) { toast('Pick a date first', 'error'); return; }
+  try {
+    await api('/api/timestamp', {method:'POST', body:{date: val}});
+    toast('Scan date updated. Takes effect on next poll.', 'success');
   } catch(e) { toast('Error: '+e.message, 'error'); }
 }
 
@@ -585,6 +694,9 @@ async function confirmDeletePet() {
   } catch(e) {}
   loadPets();
   loadNegatives();
+  loadTimestamp();
+  loadPollStatus();
+  setInterval(loadPollStatus, 30000);
 })();
 </script>
 </body>
