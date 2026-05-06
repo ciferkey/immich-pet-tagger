@@ -59,7 +59,10 @@
         </div>
         <div class="refs-header">
           <span style="font-size:12px; font-weight:500;" id="refsTitle">No pet selected</span>
-          <button class="btn" id="taggedBtn" onclick="viewTagged()" style="display:none; font-size:11px; padding:3px 8px;">Tagged</button>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <button class="btn btn-danger" id="clearRefsBtn" onclick="clearAllRefs()" style="display:none; font-size:11px; padding:3px 8px;">Clear all</button>
+            <button class="btn" id="taggedBtn" onclick="viewTagged()" style="display:none; font-size:11px; padding:3px 8px;">Tagged</button>
+          </div>
         </div>
         <div class="refs-grid" id="refsGrid">
           <div class="empty" style="grid-column:1/-1; height:200px;">
@@ -69,7 +72,10 @@
         <div class="neg-panel">
           <div class="neg-header">
             <span style="font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--text3);">Not my pets</span>
-            <span style="font-size:11px; color:var(--text3);" id="negCount">0</span>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <button class="btn btn-danger" id="clearNegsBtn" onclick="clearAllNegatives()" style="display:none; font-size:11px; padding:3px 8px;">Clear all</button>
+              <span style="font-size:11px; color:var(--text3);" id="negCount">0</span>
+            </div>
           </div>
           <div class="neg-grid" id="negGrid"></div>
           <button class="btn" style="width:100%; font-size:11px; margin-top:8px;" id="addNegBtn" onclick="addSelectedAsNegatives()" style="display:none">Mark selected as "not my pets"</button>

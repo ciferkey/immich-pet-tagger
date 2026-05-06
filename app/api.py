@@ -180,6 +180,23 @@ async def add_negatives(body: PetAssets):
     return {"ok": True, "count": len(merged)}
 
 
+@router.delete("/pets/{name}/refs")
+async def clear_pet_refs(name: str):
+    config = data.load_config(DATA_DIR)
+    if name not in config:
+        raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
+    data.save_pet_refs(name, [], DATA_DIR)
+    log.info(f"Cleared all refs for pet '{name}' (local only)")
+    return {"ok": True}
+
+
+@router.delete("/negatives/all")
+async def clear_all_negatives():
+    data.save_negative_ids([], DATA_DIR)
+    log.info("Cleared all negatives (local only)")
+    return {"ok": True}
+
+
 @router.delete("/negatives/{asset_id}")
 async def remove_negative(asset_id: str):
     ids = [i for i in data.load_negative_ids(DATA_DIR) if i != asset_id]
@@ -409,28 +426,28 @@ async def import_pet(body: PetImport):
     if check.status_code != 200:
         raise HTTPException(status_code=404, detail="Person not found in Immich")
 
-    assets = []
-    async with httpx.AsyncClient(timeout=30) as client:
+    candidates = []
+    async with httpx.AsyncClient(timeout=60) as client:
         search = await client.post(
             f"{imm.IMMICH_URL}/api/search/metadata",
             headers={**imm.headers(), "Content-Type": "application/json"},
-            json={"personIds": [body.person_id], "size": 60},
+            json={"personIds": [body.person_id], "size": 200},
         )
         if search.status_code == 200:
             block = search.json().get("assets", {})
             items = block.get("items", []) if isinstance(block, dict) else []
             for a in items:
-                if len(assets) >= 20:
-                    break
                 aid = a.get("id")
                 if not aid:
                     continue
                 faces_resp = await client.get(f"{imm.IMMICH_URL}/api/faces", headers=imm.headers(), params={"id": aid})
                 if faces_resp.status_code == 200:
                     named = {f["person"]["id"] for f in faces_resp.json() if f.get("person", {}).get("id")}
-                    if len(named) != 1:
-                        continue
-                assets.append({"asset_id": aid, "face_id": None})
+                    if len(named) == 1:
+                        candidates.append(aid)
+
+    n = min(len(candidates), 20)
+    assets = [{"asset_id": candidates[int(i * len(candidates) / n)], "face_id": None} for i in range(n)]
 
     (PETS_DIR / name).mkdir(parents=True, exist_ok=True)
     data.save_pet_refs(name, assets, DATA_DIR)

@@ -45,6 +45,7 @@ function renderSidebar() {
     document.getElementById('refsTitle').textContent = 'No pet selected';
     document.getElementById('suggestSection').style.display = 'none';
     document.getElementById('taggedBtn').style.display = 'none';
+    document.getElementById('clearRefsBtn').style.display = 'none';
     document.getElementById('refsGrid').innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-sub">Add a pet first</div></div>';
     return;
   }
@@ -79,6 +80,7 @@ async function selectPet(name) {
   document.getElementById('suggestSection').style.display = '';
   document.getElementById('taggedBtn').style.display = '';
   document.getElementById('taggedBtn').textContent = 'Tagged';
+  document.getElementById('clearRefsBtn').style.display = '';
   await loadRefs(name);
   await loadNegatives();
 }
@@ -276,6 +278,7 @@ async function loadNegatives() {
     const d = await api('/api/negatives');
     negIds = d.assets.map(a => a.id);
     updateNegStatus();
+    document.getElementById('clearNegsBtn').style.display = negIds.length ? '' : 'none';
     const grid = document.getElementById('negGrid');
     if (!negIds.length) { grid.innerHTML = ''; return; }
     grid.innerHTML = d.assets.map(a => `
@@ -297,6 +300,28 @@ async function addSelectedAsNegatives() {
     selectedIds.clear(); updateSelUI();
     await loadNegatives();
     toast('Added to "not my pets"', 'success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function clearAllRefs() {
+  if (!activePet) return;
+  if (!confirm(`Remove all reference photos for ${activePet.name} from this tool? This will not affect Immich.`)) return;
+  try {
+    await api(`/api/pets/${encodeURIComponent(activePet.name)}/refs`, { method: 'DELETE' });
+    refsIds = [];
+    await loadRefs(activePet.name);
+    await refreshState();
+    toast('All refs cleared', 'success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function clearAllNegatives() {
+  if (!confirm(`Remove all "not my pets" photos from this tool? This will not affect Immich.`)) return;
+  try {
+    await api('/api/negatives/all', { method: 'DELETE' });
+    negIds = [];
+    await loadNegatives();
+    toast('All "not my pets" cleared', 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
