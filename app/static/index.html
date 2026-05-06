@@ -15,6 +15,7 @@
     </div>
     <div class="pets-list" id="petsList"></div>
     <button class="add-pet-btn" onclick="openAddPet()">+ Add pet</button>
+    <button class="add-pet-btn" onclick="openImportPet()">↓ Import from Immich</button>
     <div class="sidebar-bottom">
       <div class="scan-panel">
         <label>Scan from</label>
@@ -146,6 +147,52 @@
     <div class="modal-actions">
       <button class="btn" onclick="closeDeleteModal()">Cancel</button>
       <button class="btn btn-danger" onclick="confirmDeletePet()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="importPickerModal">
+  <div class="modal modal-wide">
+    <h2>Import from Immich</h2>
+    <div class="field" style="margin-bottom:10px;">
+      <input type="text" id="importSearch" placeholder="Filter by name…" oninput="filterImportPeople()">
+    </div>
+    <div class="people-grid" id="importPeopleGrid">
+      <div class="loading">Loading…</div>
+    </div>
+    <div class="modal-error" id="importPickerError"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeImportPicker()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="importDetailModal">
+  <div class="modal">
+    <h2>Import pet</h2>
+    <div class="field">
+      <label>Name</label>
+      <input type="text" id="importPetName" disabled>
+    </div>
+    <div class="field">
+      <label>Description</label>
+      <input type="text" id="importPetDescription" placeholder="orange tabby cat" onkeydown="if(event.key==='Enter') submitImportPet()">
+      <div class="hint">2-4 keywords for CLIP, e.g. "black labrador dog"</div>
+    </div>
+    <div class="field">
+      <label>Photos since <span class="tag">optional</span></label>
+      <input type="date" id="importPetSince">
+      <div class="hint">Ignore photos taken before this date</div>
+    </div>
+    <div class="field">
+      <label>Photos until <span class="tag">optional</span></label>
+      <input type="date" id="importPetUntil">
+      <div class="hint">Leave empty if the pet is still around</div>
+    </div>
+    <div class="modal-error" id="importDetailError"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="backToImportPicker()">← Back</button>
+      <button class="btn btn-primary" onclick="submitImportPet()">Import</button>
     </div>
   </div>
 </div>

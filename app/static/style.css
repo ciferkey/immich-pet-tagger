@@ -63,7 +63,15 @@ body { font-family: 'SF Pro Display','Segoe UI',system-ui,sans-serif; background
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.15s; }
 .modal-backdrop.open { opacity: 1; pointer-events: all; }
 .modal { background: var(--bg2); border: 0.5px solid var(--border2); border-radius: var(--radius); padding: 24px; width: 340px; transform: translateY(8px); transition: transform 0.15s; }
+.modal-wide { width: 480px; }
 .modal-backdrop.open .modal { transform: translateY(0); }
+.people-grid { display: grid; grid-template-columns: repeat(4, 1fr); max-height: 320px; overflow-y: auto; margin-bottom: 4px; align-content: start; }
+.person-card { display: flex; flex-direction: column; align-items: center; gap: 5px; border-radius: var(--radius-sm); cursor: pointer; border: 1.5px solid transparent; transition: all 0.15s; }
+.person-card:hover { background: var(--bg3); border-color: var(--border2); }
+.person-card.already-added { opacity: 0.35; pointer-events: none; }
+.person-thumb { width: 68px; height: 68px; border-radius: 50%; object-fit: cover; background: var(--bg3); display: block; }
+.person-name-label { font-size: 11px; color: var(--text2); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+.field input:disabled { opacity: 0.45; cursor: not-allowed; }
 .modal h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; }
 .field { margin-bottom: 14px; }
 .field label { display: block; font-size: 11px; color: var(--text2); margin-bottom: 5px; }

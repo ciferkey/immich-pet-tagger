@@ -483,12 +483,89 @@ async function confirmDeletePet() {
 }
 
 // ---------------------------------------------------------------------------
+// Import from Immich
+// ---------------------------------------------------------------------------
+
+let _allImportPeople = [], _importSelectedPerson = null;
+
+async function openImportPet() {
+  _importSelectedPerson = null;
+  _allImportPeople = [];
+  document.getElementById('importSearch').value = '';
+  document.getElementById('importPeopleGrid').innerHTML = '<div class="loading">Loading…</div>';
+  clearModalError('importPickerError');
+  document.getElementById('importPickerModal').classList.add('open');
+  try {
+    const d = await api('/api/immich-people');
+    _allImportPeople = d.people || [];
+    renderImportPeople(_allImportPeople);
+  } catch(e) {
+    document.getElementById('importPeopleGrid').innerHTML = `<div class="empty" style="grid-column:1/-1;padding:24px;"><div class="empty-sub">${e.message}</div></div>`;
+  }
+}
+
+function renderImportPeople(people) {
+  const grid = document.getElementById('importPeopleGrid');
+  if (!people.length) {
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1;padding:24px;"><div class="empty-sub">No people found in Immich</div></div>';
+    return;
+  }
+  const petPersonIds = new Set(pets.map(p => p.person_id).filter(Boolean));
+  grid.innerHTML = people.map(p => `
+    <div class="person-card${petPersonIds.has(p.id) ? ' already-added' : ''}" data-pid="${p.id}" onclick="handlePersonCardClick(this)">
+      <img class="person-thumb" src="/api/person-thumb/${p.id}" onerror="this.style.opacity=0.2" loading="lazy" alt="">
+      <span class="person-name-label">${p.name || '—'}</span>
+    </div>`).join('');
+}
+
+function filterImportPeople() {
+  const q = document.getElementById('importSearch').value.toLowerCase();
+  renderImportPeople(q ? _allImportPeople.filter(p => (p.name || '').toLowerCase().includes(q)) : _allImportPeople);
+}
+
+function handlePersonCardClick(el) {
+  const id = el.dataset.pid;
+  const person = _allImportPeople.find(p => p.id === id);
+  if (!person) return;
+  _importSelectedPerson = person;
+  document.getElementById('importPickerModal').classList.remove('open');
+  document.getElementById('importPetName').value = person.name || '';
+  document.getElementById('importPetDescription').value = '';
+  document.getElementById('importPetSince').value = '';
+  document.getElementById('importPetUntil').value = '';
+  clearModalError('importDetailError');
+  document.getElementById('importDetailModal').classList.add('open');
+  setTimeout(() => document.getElementById('importPetDescription').focus(), 100);
+}
+
+function closeImportPicker() { document.getElementById('importPickerModal').classList.remove('open'); }
+function closeImportDetail() { document.getElementById('importDetailModal').classList.remove('open'); _importSelectedPerson = null; }
+function backToImportPicker() { document.getElementById('importDetailModal').classList.remove('open'); document.getElementById('importPickerModal').classList.add('open'); }
+
+async function submitImportPet() {
+  if (!_importSelectedPerson) return;
+  clearModalError('importDetailError');
+  const description = document.getElementById('importPetDescription').value.trim();
+  if (!description) { modalError('importDetailError', 'Description is required'); return; }
+  const sinceRaw = document.getElementById('importPetSince').value;
+  const untilRaw = document.getElementById('importPetUntil').value;
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (sinceRaw && !dateRe.test(sinceRaw)) { modalError('importDetailError', 'Invalid "since" date'); return; }
+  if (untilRaw && !dateRe.test(untilRaw)) { modalError('importDetailError', 'Invalid "until" date'); return; }
+  if (sinceRaw && untilRaw && sinceRaw > untilRaw) { modalError('importDetailError', '"Since" must be before "until"'); return; }
+  // TODO: wire up /api/pets/import once backend is ready
+  toast('Import logic coming in next update', 'error');
+}
+
+// ---------------------------------------------------------------------------
 // Modal backdrop dismissal
 // ---------------------------------------------------------------------------
 
 document.getElementById('addPetModal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
 document.getElementById('editPetModal').addEventListener('click', function(e) { if (e.target === this) closeEditModal(); });
 document.getElementById('deletePetModal').addEventListener('click', function(e) { if (e.target === this) closeDeleteModal(); });
+document.getElementById('importPickerModal').addEventListener('click', function(e) { if (e.target === this) closeImportPicker(); });
+document.getElementById('importDetailModal').addEventListener('click', function(e) { if (e.target === this) closeImportDetail(); });
 
 // ---------------------------------------------------------------------------
 // Init

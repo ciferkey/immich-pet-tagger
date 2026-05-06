@@ -401,6 +401,21 @@ async def set_timestamp(body: TimestampBody):
 
 
 # ---------------------------------------------------------------------------
+# Immich people list (for import)
+# ---------------------------------------------------------------------------
+
+@router.get("/immich-people")
+async def list_immich_people():
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{imm.IMMICH_URL}/api/people", params={"withHidden": "false"}, headers=imm.headers())
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail="Failed to fetch people from Immich")
+    body = resp.json()
+    people = [{"id": p["id"], "name": p.get("name", "")} for p in body.get("people", []) if p.get("name")]
+    return {"people": people}
+
+
+# ---------------------------------------------------------------------------
 # Thumbnail proxy
 # ---------------------------------------------------------------------------
 
