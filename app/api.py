@@ -385,6 +385,61 @@ async def get_timestamp():
     return {"timestamp": val}
 
 
+class PetImport(BaseModel):
+    person_id: str
+    name: str
+    description: str
+    since: Optional[str] = None
+    until: Optional[str] = None
+
+
+@router.post("/pets/import")
+async def import_pet(body: PetImport):
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    if any(c in name for c in r'/\.'):
+        raise HTTPException(status_code=400, detail="Pet name cannot contain /, \\, or .")
+    config = data.load_config(DATA_DIR)
+    if name.lower() in {k.lower() for k in config}:
+        raise HTTPException(status_code=409, detail=f"Pet '{name}' already exists")
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        check = await client.get(f"{imm.IMMICH_URL}/api/people/{body.person_id}", headers=imm.headers())
+    if check.status_code != 200:
+        raise HTTPException(status_code=404, detail="Person not found in Immich")
+
+    assets = []
+    async with httpx.AsyncClient(timeout=30) as client:
+        search = await client.post(
+            f"{imm.IMMICH_URL}/api/search/metadata",
+            headers={**imm.headers(), "Content-Type": "application/json"},
+            json={"personIds": [body.person_id], "size": 60},
+        )
+        if search.status_code == 200:
+            block = search.json().get("assets", {})
+            items = block.get("items", []) if isinstance(block, dict) else []
+            for a in items:
+                if len(assets) >= 20:
+                    break
+                aid = a.get("id")
+                if not aid:
+                    continue
+                faces_resp = await client.get(f"{imm.IMMICH_URL}/api/faces", headers=imm.headers(), params={"id": aid})
+                if faces_resp.status_code == 200:
+                    named = {f["person"]["id"] for f in faces_resp.json() if f.get("person", {}).get("id")}
+                    if len(named) != 1:
+                        continue
+                assets.append({"asset_id": aid, "face_id": None})
+
+    (PETS_DIR / name).mkdir(parents=True, exist_ok=True)
+    data.save_pet_refs(name, assets, DATA_DIR)
+    config[name] = {"person_id": body.person_id, "description": body.description, "since": body.since, "until": body.until}
+    data.save_config(config, DATA_DIR)
+    log.info(f"Imported pet '{name}' from person_id={body.person_id} with {len(assets)} refs")
+    return {"name": name, "person_id": body.person_id, "ref_count": len(assets)}
+
+
 class TimestampBody(BaseModel):
     date: str
 

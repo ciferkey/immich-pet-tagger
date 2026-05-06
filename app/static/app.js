@@ -553,8 +553,19 @@ async function submitImportPet() {
   if (sinceRaw && !dateRe.test(sinceRaw)) { modalError('importDetailError', 'Invalid "since" date'); return; }
   if (untilRaw && !dateRe.test(untilRaw)) { modalError('importDetailError', 'Invalid "until" date'); return; }
   if (sinceRaw && untilRaw && sinceRaw > untilRaw) { modalError('importDetailError', '"Since" must be before "until"'); return; }
-  // TODO: wire up /api/pets/import once backend is ready
-  toast('Import logic coming in next update', 'error');
+  try {
+    const result = await api('/api/pets/import', { method: 'POST', body: {
+      person_id: _importSelectedPerson.id,
+      name: _importSelectedPerson.name,
+      description,
+      since: sinceRaw || null,
+      until: untilRaw || null,
+    }});
+    closeImportDetail();
+    await refreshState();
+    await selectPet(result.name);
+    toast(`Imported ${result.name} with ${result.ref_count} refs`, 'success');
+  } catch(e) { modalError('importDetailError', e.message); }
 }
 
 // ---------------------------------------------------------------------------
