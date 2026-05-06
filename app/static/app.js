@@ -460,9 +460,9 @@ async function submitAddPet() {
   try {
     await api('/api/pets', { method: 'POST', body: { name, description, since: sinceRaw || null, until: untilRaw || null } });
     closeModal();
-    await refreshState();
+    await loadPets(true);
+    await selectPet(name);
     toast(`Created ${name}`, 'success');
-    selectPet(name);
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
@@ -501,10 +501,11 @@ async function submitEditPet() {
   try {
     await api(`/api/pets/${encodeURIComponent(_petToEdit)}`, { method: 'PATCH', body: { name, description, since: sinceRaw || null, until: untilRaw || null } });
     closeEditModal();
-    const wasActive = activePet?.name === _petToEdit;
+    const prevName = activePet?.name;
     activePet = null; clearSearch();
-    await loadPets();
-    if (wasActive) await selectPet(name);
+    await loadPets(true);
+    const selectName = prevName === _petToEdit ? name : (prevName || pets[0]?.name);
+    if (selectName) await selectPet(selectName);
     toast('Saved', 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
