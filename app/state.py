@@ -3,6 +3,8 @@ import asyncio
 scan_lock: asyncio.Lock | None = None
 neg_progress: dict = {"current": 0, "total": 0, "running": False}
 neg_request_id: int = 0
+borderline_progress: dict = {"current": 0, "total": 0, "running": False}
+borderline_request_id: int = 0
 
 
 def init():

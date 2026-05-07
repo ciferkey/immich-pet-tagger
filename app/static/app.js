@@ -1,4 +1,4 @@
-let pets = [], activePet = null, selectedIds = new Set(), refsIds = [], negIds = [], immichUrl = 'http://localhost:2283', taggedMode = false, negCandidateMode = false, borderlineMode = false, lastClickedId = null, lastNegTopScore = null, negGeneration = 0, negPollTimer = null;
+let pets = [], activePet = null, selectedIds = new Set(), refsIds = [], negIds = [], immichUrl = 'http://localhost:2283', taggedMode = false, negCandidateMode = false, borderlineMode = false, lastClickedId = null, lastNegTopScore = null, negGeneration = 0, negPollTimer = null, blGeneration = 0, blPollTimer = null;
 
 async function api(path, opts = {}) {
   const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
@@ -173,15 +173,30 @@ async function viewSuggestions() {
 
 async function viewBorderline() {
   if (!activePet || !activePet.ref_count) return;
+  const myGen = ++blGeneration;
+  if (blPollTimer) { clearInterval(blPollTimer); blPollTimer = null; }
   taggedMode = false; negCandidateMode = false; borderlineMode = true;
   selectedIds.clear(); lastClickedId = null; updateSelUI();
   const grid = document.getElementById('photoGrid');
   const label = document.getElementById('resultsLabel');
-  grid.innerHTML = '<div class="loading" style="grid-column:1/-1">Finding missed photos… this may take a moment</div>';
+  const petName = activePet.name;
+  grid.innerHTML = '<div class="loading" id="blLoadMsg" style="grid-column:1/-1">Finding missed photos…</div>';
   label.textContent = 'Finding missed photos…';
+
+  blPollTimer = setInterval(async () => {
+    if (blGeneration !== myGen) { clearInterval(blPollTimer); blPollTimer = null; return; }
+    try {
+      const p = await api(`/api/pets/${encodeURIComponent(petName)}/borderline/progress`);
+      const el = document.getElementById('blLoadMsg');
+      if (el && p.total > 0) el.textContent = `Classifying ${p.current} / ${p.total} photos…`;
+    } catch(_) {}
+  }, 1000);
+
   try {
-    const d = await api(`/api/pets/${encodeURIComponent(activePet.name)}/borderline`);
-    label.textContent = `${d.assets.length} photo${d.assets.length !== 1 ? 's' : ''} ${activePet.name} might be missing — add good ones as refs to improve accuracy`;
+    const d = await api(`/api/pets/${encodeURIComponent(petName)}/borderline`);
+    clearInterval(blPollTimer); blPollTimer = null;
+    if (blGeneration !== myGen) return;
+    label.textContent = `${d.assets.length} photo${d.assets.length !== 1 ? 's' : ''} ${petName} might be missing. Add good ones as refs to improve accuracy.`;
     if (!d.assets.length) {
       grid.innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-icon">🐾</div><div class="empty-title">No missed photos found</div><div class="empty-sub">The classifier is either very confident or not finding this pet at all</div></div>';
       return;
@@ -201,6 +216,8 @@ async function viewBorderline() {
       if (negSet.has(a.id)) document.getElementById('th-' + a.id)?.classList.add('is-neg');
     });
   } catch(e) {
+    clearInterval(blPollTimer); blPollTimer = null;
+    if (blGeneration !== myGen) return;
     label.textContent = 'Failed to load missed photos';
     grid.innerHTML = `<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-sub">${e.message}</div></div>`;
     toast('Error: ' + e.message, 'error');

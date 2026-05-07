@@ -472,24 +472,37 @@ async def get_borderline(name: str, limit: int = 40):
 
     LOW, HIGH = 0.3, 0.85
 
+    state.borderline_request_id += 1
+    my_id = state.borderline_request_id
+
     def compute():
-        result = build_classifier(pet_names, ref_ids_per_pet, negative_ids)
-        if result is None:
-            return []
-        names, clf, scaler = result
-        if name not in names:
-            return []
-        pet_idx = names.index(name)
-        scored = []
-        for a in candidates:
-            vec = embed_asset(a["id"])
-            if vec is not None:
-                v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
-                pet_prob = float(clf.predict_proba(scaler.transform(v))[0][pet_idx])
-                if LOW <= pet_prob < HIGH:
-                    scored.append((pet_prob, a))
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return scored[:limit]
+        state.borderline_progress["current"] = 0
+        state.borderline_progress["total"] = len(candidates)
+        state.borderline_progress["running"] = True
+        try:
+            result = build_classifier(pet_names, ref_ids_per_pet, negative_ids)
+            if result is None:
+                return []
+            names, clf, scaler = result
+            if name not in names:
+                return []
+            pet_idx = names.index(name)
+            scored = []
+            for i, a in enumerate(candidates):
+                if state.borderline_request_id != my_id:
+                    return []
+                state.borderline_progress["current"] = i + 1
+                vec = embed_asset(a["id"])
+                if vec is not None:
+                    v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
+                    pet_prob = float(clf.predict_proba(scaler.transform(v))[0][pet_idx])
+                    if LOW <= pet_prob < HIGH:
+                        scored.append((pet_prob, a))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            return scored[:limit]
+        finally:
+            if state.borderline_request_id == my_id:
+                state.borderline_progress["running"] = False
 
     from poller import THRESHOLD
     scored = await asyncio.to_thread(compute)
@@ -497,6 +510,11 @@ async def get_borderline(name: str, limit: int = 40):
         "assets": [{**_slim_asset(a), "score": round(prob, 3)} for prob, a in scored],
         "threshold": THRESHOLD,
     }
+
+
+@router.get("/pets/{name}/borderline/progress")
+async def get_borderline_progress(name: str):
+    return state.borderline_progress
 
 
 @router.get("/suggestions/negatives")
@@ -514,7 +532,7 @@ async def get_neg_candidates(limit: int = 60):
         resp = await client.post(
             f"{imm.IMMICH_URL}/api/search/random",
             headers=imm.headers(),
-            json={"count": 300, "type": "IMAGE"},
+            json={"count": 100, "type": "IMAGE"},
         )
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
