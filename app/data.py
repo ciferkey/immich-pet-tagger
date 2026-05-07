@@ -61,6 +61,20 @@ def save_negative_ids(ids: list[str], data_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Skipped
+# ---------------------------------------------------------------------------
+
+def load_skipped_ids(data_dir: Path) -> list[str]:
+    path = data_dir / "skipped.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+
+
+def save_skipped_ids(ids: list[str], data_dir: Path) -> None:
+    data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "skipped.json").write_text(json.dumps(ids, indent=2), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
 # Scan timestamp
 # ---------------------------------------------------------------------------
 

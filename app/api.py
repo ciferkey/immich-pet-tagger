@@ -253,6 +253,18 @@ async def remove_negative(asset_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Skipped
+# ---------------------------------------------------------------------------
+
+@router.post("/skipped")
+async def add_skipped(body: PetAssets):
+    existing = set(data.load_skipped_ids(DATA_DIR))
+    merged = list(existing | set(body.asset_ids))
+    data.save_skipped_ids(merged, DATA_DIR)
+    return {"count": len(merged)}
+
+
+# ---------------------------------------------------------------------------
 # Pet reference assets
 # ---------------------------------------------------------------------------
 
@@ -456,7 +468,8 @@ async def get_borderline(name: str, limit: int = 40):
 
     ref_set = set(ref_ids)
     neg_ids = set(data.load_negative_ids(DATA_DIR))
-    exclude = ref_set | neg_ids
+    skipped_ids = set(data.load_skipped_ids(DATA_DIR))
+    exclude = ref_set | neg_ids | skipped_ids
 
     async with httpx.AsyncClient(timeout=30) as client:
         candidates = await _visual_search(client, ref_ids, pet_cfg, exclude)
@@ -527,7 +540,8 @@ async def get_neg_candidates(limit: int = 60):
     ref_ids_per_pet = {n: data.load_pet_asset_ids(n, DATA_DIR) for n in all_pet_names}
     all_ref_ids: set[str] = {rid for ids in ref_ids_per_pet.values() for rid in ids}
     neg_ids = set(data.load_negative_ids(DATA_DIR))
-    exclude = all_ref_ids | neg_ids
+    skipped_ids = set(data.load_skipped_ids(DATA_DIR))
+    exclude = all_ref_ids | neg_ids | skipped_ids
 
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(

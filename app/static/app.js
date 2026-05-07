@@ -312,8 +312,20 @@ function updateSelUI() {
   const n = selectedIds.size;
   document.getElementById('selCount').textContent = n ? `${n} selected` : '';
   document.getElementById('assignBtn').style.display = (n && activePet && !taggedMode && !negCandidateMode) ? '' : 'none';
+  document.getElementById('skipBtn').style.display = (n && !taggedMode) ? '' : 'none';
   document.getElementById('addNegBtn').style.display = (n && !taggedMode) ? '' : 'none';
   document.getElementById('rejectBtn').style.display = (n && taggedMode) ? '' : 'none';
+}
+
+async function skipSelected() {
+  if (!selectedIds.size) return;
+  const ids = [...selectedIds];
+  try {
+    await api('/api/skipped', { method: 'POST', body: { asset_ids: ids } });
+    ids.forEach(id => document.getElementById('th-' + id)?.remove());
+    selectedIds.clear(); updateSelUI();
+    toast(`Skipped ${ids.length} photo${ids.length !== 1 ? 's' : ''}`, 'success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
 // ---------------------------------------------------------------------------
