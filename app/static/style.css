@@ -51,7 +51,7 @@ body { font-family: 'SF Pro Display','Segoe UI',system-ui,sans-serif; background
 .score-badge.score-ok { color: var(--success); }
 .refs-panel { width: 364px; min-width: 364px; border-left: 0.5px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
 .suggest-section { padding: 12px 14px; border-bottom: 0.5px solid var(--border); flex-shrink: 0; }
-.suggest-section .btn { width: 100%; justify-content: center; }
+.suggest-section .btn { justify-content: center; }
 .refs-header { padding: 12px 14px; border-bottom: 0.5px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
 .refs-grid { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; display: grid; grid-template-columns: 1fr 1fr 1fr; grid-auto-rows: 110px; gap: 5px; }
 .ref-thumb { border-radius: 5px; overflow: hidden; position: relative; background: var(--bg3); border: 0.5px solid var(--border); }

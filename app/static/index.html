@@ -55,8 +55,10 @@
       </div>
       <div class="refs-panel">
         <div class="suggest-section" id="suggestSection" style="display:none">
-          <button class="btn btn-primary" id="suggestBtn" onclick="viewSuggestions()">Find similar photos</button>
-          <button class="btn" id="borderlineBtn" onclick="viewBorderline()" style="font-size:11px;">Find missed photos</button>
+          <div style="display:flex; gap:6px;">
+            <button class="btn btn-primary" id="suggestBtn" onclick="viewSuggestions()" style="flex:1;">Find similar</button>
+            <button class="btn" id="borderlineBtn" onclick="viewBorderline()" style="flex:1; font-size:11px;">Find missed</button>
+          </div>
         </div>
         <div class="refs-header">
           <span style="font-size:12px; font-weight:500;" id="refsTitle">No pet selected</span>

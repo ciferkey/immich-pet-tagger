@@ -81,6 +81,10 @@ async function selectPet(name) {
   document.getElementById('taggedBtn').style.display = '';
   document.getElementById('taggedBtn').textContent = 'Tagged';
   document.getElementById('clearRefsBtn').style.display = '';
+  const hasRefs = activePet && activePet.ref_count > 0;
+  const bb = document.getElementById('borderlineBtn');
+  bb.disabled = !hasRefs;
+  bb.title = hasRefs ? '' : 'Add refs first';
   await loadRefs(name);
   await loadNegatives();
 }
@@ -168,8 +172,7 @@ async function viewSuggestions() {
 }
 
 async function viewBorderline() {
-  if (!activePet) return;
-  if (!activePet.description) { toast('Edit this pet and add a description to use this feature', 'error'); return; }
+  if (!activePet || !activePet.ref_count) return;
   taggedMode = false; negCandidateMode = false; borderlineMode = true;
   selectedIds.clear(); lastClickedId = null; updateSelUI();
   const grid = document.getElementById('photoGrid');
