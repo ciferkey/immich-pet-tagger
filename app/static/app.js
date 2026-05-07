@@ -180,7 +180,7 @@ async function viewBorderline() {
   const grid = document.getElementById('photoGrid');
   const label = document.getElementById('resultsLabel');
   const petName = activePet.name;
-  grid.innerHTML = '<div class="loading" id="blLoadMsg" style="grid-column:1/-1">Finding missed photos…</div>';
+  grid.innerHTML = '<div class="loading" id="blLoadMsg" style="grid-column:1/-1">Loading…</div>';
   label.textContent = 'Finding missed photos…';
 
   blPollTimer = setInterval(async () => {
@@ -189,8 +189,8 @@ async function viewBorderline() {
       const p = await api(`/api/pets/${encodeURIComponent(petName)}/borderline/progress`);
       const el = document.getElementById('blLoadMsg');
       if (!el) return;
-      if (p.total > 0) el.textContent = `Classifying ${p.current} / ${p.total} photos…`;
-      else if (p.running) el.textContent = 'Building classifier…';
+      if (p.total > 0) el.textContent = `Loading ${Math.round(p.current / p.total * 100)}%…`;
+      else if (p.running) el.textContent = 'Loading…';
     } catch(_) {}
   }, 1000);
 
@@ -375,7 +375,7 @@ async function viewNegCandidates() {
   selectedIds.clear(); lastClickedId = null; updateSelUI();
   const grid = document.getElementById('photoGrid');
   const label = document.getElementById('resultsLabel');
-  grid.innerHTML = '<div class="loading" id="negLoadMsg" style="grid-column:1/-1">Classifying photos…</div>';
+  grid.innerHTML = '<div class="loading" id="negLoadMsg" style="grid-column:1/-1">Loading…</div>';
   label.textContent = 'Finding candidates…';
 
   negPollTimer = setInterval(async () => {
@@ -384,8 +384,8 @@ async function viewNegCandidates() {
       const p = await api('/api/suggestions/negatives/progress');
       const el = document.getElementById('negLoadMsg');
       if (!el) return;
-      if (p.total > 0) el.textContent = `Classifying ${p.current} / ${p.total} photos…`;
-      else if (p.running) el.textContent = 'Building classifier…';
+      if (p.total > 0) el.textContent = `Loading ${Math.round(p.current / p.total * 100)}%…`;
+      else if (p.running) el.textContent = 'Loading…';
     } catch(_) {}
   }, 1000);
 
