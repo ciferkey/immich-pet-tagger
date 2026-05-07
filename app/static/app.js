@@ -155,7 +155,7 @@ async function viewSuggestions() {
       return;
     }
     grid.innerHTML = d.assets.map(a => `
-      <div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename} · ${a.date}">
+      <div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename} · ${fmtDate(a.date)}">
         <img src="${a.thumb}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
         <a class="photo-open" href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">⤢</a>
         <div class="photo-check">✓</div>
@@ -207,7 +207,7 @@ async function viewBorderline() {
     const thr = d.threshold ?? 0.8;
     grid.innerHTML = d.assets.map(a => {
       const cls = a.score < thr ? 'score-low' : 'score-ok';
-      return `<div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename} · ${a.date}">
+      return `<div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename} · ${fmtDate(a.date)}">
         <img src="${a.thumb}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
         <a class="photo-open" href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">⤢</a>
         <div class="photo-check">✓</div>
@@ -250,7 +250,7 @@ async function viewTagged() {
       return;
     }
     grid.innerHTML = d.assets.map(a => `
-      <div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename || a.id} · ${a.date}">
+      <div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename || a.id} · ${fmtDate(a.date)}">
         <img src="${a.thumb}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
         <a class="photo-open" href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">⤢</a>
         <div class="photo-check">✓</div>
@@ -407,7 +407,7 @@ async function viewNegCandidates() {
     grid.innerHTML = d.assets.map(a => {
       const cls = a.score != null ? (a.score < thr ? 'score-low' : 'score-ok') : '';
       const badge = a.score != null ? `<div class="score-badge ${cls}">${Math.round(a.score * 100)}%</div>` : '';
-      return `<div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename} · ${a.date}">
+      return `<div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename} · ${fmtDate(a.date)}">
         <img src="${a.thumb}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
         <a class="photo-open" href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">⤢</a>
         <div class="photo-check">✓</div>
@@ -462,6 +462,12 @@ async function removeNegative(id) {
 // ---------------------------------------------------------------------------
 // Poll status
 // ---------------------------------------------------------------------------
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.slice(0, 10).split('-');
+  return `${d}.${m}.${y}`;
+}
 
 function relativeTime(iso) {
   const diff = Math.floor((Date.now() - new Date(iso)) / 1000);
