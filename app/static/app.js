@@ -466,8 +466,9 @@ async function removeNegative(id) {
 function fmtDate(iso) {
   if (!iso) return '';
   const [y, m, d] = iso.slice(0, 10).split('-');
-  return `${d}.${m}.${y}`;
+  return `${d}/${m}/${y}`;
 }
+
 
 function relativeTime(iso) {
   const diff = Math.floor((Date.now() - new Date(iso)) / 1000);
@@ -557,13 +558,9 @@ async function submitAddPet() {
   if (!description) { modalError('addPetError', 'Description is required'); return; }
   const sinceRaw = document.getElementById('petSince').value;
   const untilRaw = document.getElementById('petUntil').value;
-  const sinceEl = document.getElementById('petSince');
-  const untilEl = document.getElementById('petUntil');
-  if (sinceEl.value === '' && sinceEl.validity && !sinceEl.validity.valid && sinceEl.validity.badInput) { modalError('addPetError', 'Incomplete "since" date'); return; }
-  if (untilEl.value === '' && untilEl.validity && !untilEl.validity.valid && untilEl.validity.badInput) { modalError('addPetError', 'Incomplete "until" date'); return; }
   const dateRe = /^\d{4}-\d{2}-\d{2}$/;
-  if (sinceRaw && !dateRe.test(sinceRaw)) { modalError('addPetError', 'Invalid "since" date. Use YYYY-MM-DD'); return; }
-  if (untilRaw && !dateRe.test(untilRaw)) { modalError('addPetError', 'Invalid "until" date. Use YYYY-MM-DD'); return; }
+  if (sinceRaw && !dateRe.test(sinceRaw)) { modalError('addPetError', 'Invalid "since" date'); return; }
+  if (untilRaw && !dateRe.test(untilRaw)) { modalError('addPetError', 'Invalid "until" date'); return; }
   if (sinceRaw && untilRaw && sinceRaw > untilRaw) { modalError('addPetError', '"Since" must be before "until"'); return; }
   try {
     await api('/api/pets', { method: 'POST', body: { name, description, since: sinceRaw || null, until: untilRaw || null } });
@@ -598,13 +595,9 @@ async function submitEditPet() {
   if (!description) { modalError('editPetError', 'Description is required'); return; }
   const sinceRaw = document.getElementById('editPetSince').value;
   const untilRaw = document.getElementById('editPetUntil').value;
-  const sinceEl = document.getElementById('editPetSince');
-  const untilEl = document.getElementById('editPetUntil');
-  if (sinceEl.value === '' && sinceEl.validity && !sinceEl.validity.valid && sinceEl.validity.badInput) { modalError('editPetError', 'Incomplete "since" date'); return; }
-  if (untilEl.value === '' && untilEl.validity && !untilEl.validity.valid && untilEl.validity.badInput) { modalError('editPetError', 'Incomplete "until" date'); return; }
   const dateRe = /^\d{4}-\d{2}-\d{2}$/;
-  if (sinceRaw && !dateRe.test(sinceRaw)) { modalError('editPetError', 'Invalid "since" date. Use YYYY-MM-DD'); return; }
-  if (untilRaw && !dateRe.test(untilRaw)) { modalError('editPetError', 'Invalid "until" date. Use YYYY-MM-DD'); return; }
+  if (sinceRaw && !dateRe.test(sinceRaw)) { modalError('editPetError', 'Invalid "since" date'); return; }
+  if (untilRaw && !dateRe.test(untilRaw)) { modalError('editPetError', 'Invalid "until" date'); return; }
   if (sinceRaw && untilRaw && sinceRaw > untilRaw) { modalError('editPetError', '"Since" must be before "until"'); return; }
   try {
     await api(`/api/pets/${encodeURIComponent(_petToEdit)}`, { method: 'PATCH', body: { name, description, since: sinceRaw || null, until: untilRaw || null } });
