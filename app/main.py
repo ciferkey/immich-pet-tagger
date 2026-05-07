@@ -13,7 +13,8 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from poller import run_poll_cycle
+from pathlib import Path
+from poller import run_poll_cycle, load_embed_cache
 from api import router as api_router
 import state
 
@@ -44,6 +45,7 @@ async def polling_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     state.init()
+    load_embed_cache(Path(DATA_DIR))
     task = asyncio.create_task(polling_loop())
     yield
     task.cancel()

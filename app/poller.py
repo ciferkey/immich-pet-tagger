@@ -3,6 +3,7 @@ No DB access. Embeddings computed from thumbnails via the Immich HTTP API."""
 
 import logging
 import os
+import pickle
 import random
 import time
 from datetime import datetime, timezone
@@ -32,6 +33,7 @@ _clip_model = None
 _clip_preprocess = None
 _clip_device = None
 _embed_cache: dict[str, np.ndarray] = {}
+_cache_path: Path | None = None
 
 
 def get_clip():
@@ -118,6 +120,30 @@ def crop_animals(img: Image.Image) -> list[tuple[tuple, Image.Image]]:
     ]
 
 
+def load_embed_cache(data_dir: Path) -> None:
+    global _cache_path
+    _cache_path = data_dir / "embeddings.pkl"
+    if _cache_path.exists():
+        try:
+            with open(_cache_path, "rb") as f:
+                _embed_cache.update(pickle.load(f))
+            log.info(f"Loaded {len(_embed_cache)} cached embeddings from {_cache_path}")
+        except Exception as e:
+            log.warning(f"Could not load embedding cache: {e}")
+
+
+def _save_embed_cache() -> None:
+    if _cache_path is None:
+        return
+    tmp = _cache_path.with_suffix(".tmp")
+    try:
+        with open(tmp, "wb") as f:
+            pickle.dump(_embed_cache, f)
+        tmp.replace(_cache_path)
+    except Exception as e:
+        log.warning(f"Could not save embedding cache: {e}")
+
+
 def embed_asset(asset_id: str) -> np.ndarray | None:
     if asset_id in _embed_cache:
         return _embed_cache[asset_id]
@@ -130,6 +156,7 @@ def embed_asset(asset_id: str) -> np.ndarray | None:
         vec = embed_image(img)
     if vec is not None:
         _embed_cache[asset_id] = vec
+        _save_embed_cache()
     return vec
 
 
