@@ -478,7 +478,7 @@ async function removeNegative(id) {
 function fmtDate(iso) {
   if (!iso) return '';
   const [y, m, d] = iso.slice(0, 10).split('-');
-  return `${d}/${m}/${y}`;
+  return new Date(+y, m - 1, +d).toLocaleDateString();
 }
 
 
