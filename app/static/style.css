@@ -105,6 +105,8 @@ body { font-family: 'SF Pro Display','Segoe UI',system-ui,sans-serif; background
 .scan-row { display: flex; gap: 6px; align-items: center; }
 .scan-row input[type=date] { flex: 1; background: var(--bg3); border: 0.5px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-size: 11px; padding: 5px 7px; outline: none; min-width: 0; }
 .scan-row input[type=date]:focus { border-color: var(--accent); }
+.scan-result { padding: 8px 10px; border-bottom: 0.5px solid var(--border); }
+.scan-result-header { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text3); margin-bottom: 4px; }
 .poll-panel { padding: 10px; }
 .poll-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .poll-header label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text3); }

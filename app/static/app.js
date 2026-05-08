@@ -530,16 +530,52 @@ async function loadTimestamp() {
   } catch(e) {}
 }
 
+async function loadScanResult() {
+  try { showScanResult(await api('/api/scan/result')); } catch(_) {}
+}
+
+function showScanResult(r) {
+  const el = document.getElementById('scanResult');
+  if (!r || r.status === 'none') { el.style.display = 'none'; return; }
+  el.className = 'scan-result';
+  el.style.display = '';
+  const stat = (label, val, cls) => `<div class="poll-stat"><span class="poll-stat-label">${label}</span><span class="poll-stat-val ${val > 0 ? cls : ''}">${val}</span></div>`;
+  if (r.status === 'running') {
+    el.innerHTML = '<div class="scan-result-header">Scanning…</div>';
+    return;
+  }
+  if (r.status === 'error') {
+    el.innerHTML = `<div class="scan-result-header">Scan failed</div><div style="font-size:11px;color:var(--danger);margin-top:4px;">${r.error || ''}</div>`;
+    return;
+  }
+  if (r.counts) {
+    const c = r.counts;
+    el.innerHTML = '<div class="scan-result-header">Scan result</div>' +
+      '<div class="poll-stats" style="margin-top:6px;">' +
+      stat('Tagged', c.added, 'nonzero-good') +
+      stat('Low conf.', c.low_confidence, 'nonzero-warn') +
+      stat('Unknown', c.unknown, '') +
+      stat('Out of range', c.out_of_range, '') +
+      stat('Already tagged', c.already_tagged, '') +
+      (c.failed > 0 ? stat('Failed', c.failed, 'nonzero-bad') : '') +
+      (c.no_thumb > 0 ? stat('No thumb', c.no_thumb, 'nonzero-warn') : '') +
+      '</div>';
+  }
+}
+
 async function applyTimestamp() {
   const val = document.getElementById('scanDate').value;
   if (!val) { toast('Pick a date first', 'error'); return; }
   try {
     await api('/api/timestamp', { method: 'POST', body: { date: val } });
     await api('/api/scan', { method: 'POST' });
-    loadPollStatus();
+    showScanResult({ status: 'running' });
     const iv = setInterval(async () => {
-      await loadPollStatus();
-      if (!document.getElementById('pollBadge').classList.contains('running')) clearInterval(iv);
+      try {
+        const r = await api('/api/scan/result');
+        showScanResult(r);
+        if (r.status !== 'running') { clearInterval(iv); loadPollStatus(); }
+      } catch(_) {}
     }, 2000);
   } catch(e) {
     const msg = e.message.includes('409') || e.message.includes('already') ? 'Scan already in progress' : e.message;
@@ -758,5 +794,6 @@ document.getElementById('importDetailModal').addEventListener('click', function(
   await refreshState();
   loadTimestamp();
   loadPollStatus();
+  loadScanResult();
   setInterval(loadPollStatus, 30000);
 })();

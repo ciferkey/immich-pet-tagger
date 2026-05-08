@@ -703,8 +703,19 @@ async def trigger_scan():
 async def _run_manual_scan():
     import state
     from poller import run_poll_cycle
-    async with state.scan_lock:
-        await asyncio.to_thread(run_poll_cycle, DATA_DIR)
+    from datetime import datetime, timezone
+    state.manual_scan_result = {"status": "running", "started_at": datetime.now(timezone.utc).isoformat()}
+    try:
+        async with state.scan_lock:
+            await asyncio.to_thread(run_poll_cycle, DATA_DIR)
+            state.manual_scan_result = data.load_poll_status(DATA_DIR)
+    except Exception as e:
+        state.manual_scan_result = {"status": "error", "error": str(e), "ran_at": datetime.now(timezone.utc).isoformat()}
+
+
+@router.get("/scan/result")
+async def get_scan_result():
+    return state.manual_scan_result or {"status": "none"}
 
 
 # ---------------------------------------------------------------------------
