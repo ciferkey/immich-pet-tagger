@@ -60,7 +60,7 @@ def fetch_asset_face_person_ids(asset_id: str) -> set[str]:
         r = requests.get(f"{IMMICH_URL}/api/faces", params={"id": asset_id}, headers=headers(), timeout=10)
         if r.status_code != 200 or not isinstance(r.json(), list):
             return set()
-        return {str(f["person"]["id"]) for f in r.json() if f.get("person", {}).get("id")}
+        return {str(f["person"]["id"]) for f in r.json() if (f.get("person") or {}).get("id")}
     except Exception:
         return set()
 

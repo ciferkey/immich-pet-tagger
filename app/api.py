@@ -728,6 +728,7 @@ async def get_scan_result():
 
 @router.get("/scan/low-confidence")
 async def get_scan_low_confidence():
+    from poller import THRESHOLD
     config = data.load_config(DATA_DIR)
     seen: dict = {}
     for a in (state.scan_low_conf_assets or []):
