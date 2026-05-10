@@ -528,7 +528,7 @@ function showScanResult(r) {
       '<div class="poll-stats" style="margin-top:6px;">' +
       stat('Tagged', c.added || 0, 'nonzero-good') +
       stat('Low conf.', c.low_confidence || 0, 'nonzero-warn') +
-      stat('Unknown', c.unknown || 0, '') +
+      stat('Other', c.unknown || 0, '') +
       stat('Already tagged', c.already_tagged || 0, '') +
       (c.failed > 0 ? stat('Failed', c.failed, 'nonzero-bad') : '') +
       '</div>';
@@ -544,7 +544,7 @@ function showScanResult(r) {
       '<div class="poll-stats" style="margin-top:6px;">' +
       stat('Tagged', c.added, 'nonzero-good') +
       stat('Low conf.', c.low_confidence, 'nonzero-warn') +
-      stat('Unknown', c.unknown, '') +
+      stat('Other', c.unknown, '') +
       stat('Out of range', c.out_of_range, '') +
       stat('Already tagged', c.already_tagged, '') +
       (c.failed > 0 ? stat('Failed', c.failed, 'nonzero-bad') : '') +
