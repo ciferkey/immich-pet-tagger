@@ -10,7 +10,7 @@ services:
       - IMMICH_API_KEY=your_api_key_here
       - IMMICH_EXTERNAL_URL=http://localhost:2283 # Immich URL as seen from your browser
       - POLL_INTERVAL=300                        # Seconds between scans
-      - THRESHOLD=0.92                           # Min confidence to assign a face
+      - THRESHOLD=0.8                            # Min confidence to assign a face
       # - DRY_RUN=true                           # Uncomment to disable writing to Immich
       # CLIP model settings (optional — defaults match Immich's built-in model)
       # - CLIP_MODEL=ViT-B-16

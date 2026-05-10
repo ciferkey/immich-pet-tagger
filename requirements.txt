@@ -9,3 +9,4 @@ Pillow==10.4.0
 open-clip-torch==2.26.1
 torch==2.3.1
 torchvision==0.18.1
+ultralytics>=8.0.0

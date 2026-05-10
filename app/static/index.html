@@ -21,17 +21,10 @@
         <label>Scan from</label>
         <div class="scan-row">
           <input type="date" id="scanDate">
-          <button class="btn" style="font-size:11px; padding:5px 10px;" onclick="applyTimestamp()">Apply</button>
+          <button class="btn" style="font-size:11px; padding:5px 10px;" onclick="applyTimestamp()">Scan</button>
         </div>
       </div>
-      <div class="poll-panel">
-        <div class="poll-header">
-          <label>Last scan</label>
-          <span class="poll-badge never" id="pollBadge">never</span>
-        </div>
-        <div class="poll-time" id="pollTime"></div>
-        <div class="poll-stats" id="pollStats"></div>
-      </div>
+      <div id="scanResult" style="display:none"></div>
     </div>
   </div>
   <div class="main">
@@ -42,7 +35,10 @@
           <div class="results-actions">
             <span id="selCount" style="font-size:12px; color:var(--text3);"></span>
             <button class="btn btn-primary" id="assignBtn" onclick="assignSelected()" style="display:none">Add to pet →</button>
+            <button class="btn" id="skipBtn" onclick="skipSelected()" style="display:none">Skip</button>
             <button class="btn btn-danger" id="rejectBtn" onclick="rejectSelected()" style="display:none">Remove tag + mark "not my pets"</button>
+            <div id="scanPetBtns" style="display:none; gap:4px; flex-wrap:wrap;"></div>
+            <button class="btn btn-danger" id="scanNegBtn" onclick="scanNegSelected()" style="display:none">Not my pets</button>
           </div>
         </div>
         <div class="photo-grid" id="photoGrid">
@@ -55,7 +51,10 @@
       </div>
       <div class="refs-panel">
         <div class="suggest-section" id="suggestSection" style="display:none">
-          <button class="btn btn-primary" id="suggestBtn" onclick="viewSuggestions()">Find similar photos</button>
+          <div style="display:flex; gap:6px;">
+            <button class="btn btn-primary" id="suggestBtn" onclick="viewSuggestions()" style="flex:1;">Find similar</button>
+            <button class="btn" id="borderlineBtn" onclick="viewBorderline()" style="flex:1; font-size:11px;">Find missed</button>
+          </div>
         </div>
         <div class="refs-header">
           <span style="font-size:12px; font-weight:500;" id="refsTitle">No pet selected</span>

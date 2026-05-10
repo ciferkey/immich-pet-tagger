@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 import data
 import immich as imm
+import state
 from poller import embed_asset
 
 log = logging.getLogger("api")
@@ -57,6 +58,53 @@ async def get_config():
 
 def _slim_asset(a: dict) -> dict:
     return {"id": a["id"], "thumb": f"/api/thumb/{a['id']}", "date": a.get("localDateTime", "")[:10], "filename": a.get("originalFileName", "")}
+
+
+async def _visual_search(
+    client: httpx.AsyncClient,
+    ref_ids: list[str],
+    pet_cfg: dict,
+    exclude: set[str],
+    sample: int = 8,
+    per_ref_limit: int = 50,
+) -> list[dict]:
+    """Query Immich smart search using ref asset IDs instead of text.
+    Runs all ref queries in parallel and returns deduplicated candidates."""
+    if len(ref_ids) > sample:
+        step = len(ref_ids) / sample
+        sampled = [ref_ids[int(i * step)] for i in range(sample)]
+    else:
+        sampled = ref_ids
+
+    base: dict = {"type": "IMAGE", "limit": per_ref_limit}
+    if pet_cfg.get("since"):
+        base["takenAfter"] = pet_cfg["since"] + "T00:00:00.000Z"
+    if pet_cfg.get("until"):
+        base["takenBefore"] = pet_cfg["until"] + "T23:59:59.999Z"
+
+    async def fetch_one(rid: str) -> list[dict]:
+        try:
+            resp = await client.post(
+                f"{imm.IMMICH_URL}/api/search/smart",
+                headers=imm.headers(),
+                json={**base, "queryAssetId": rid},
+            )
+            if resp.status_code == 200:
+                return resp.json().get("assets", {}).get("items", [])
+        except Exception:
+            pass
+        return []
+
+    results = await asyncio.gather(*[fetch_one(rid) for rid in sampled])
+    seen: set[str] = set()
+    candidates: list[dict] = []
+    for items in results:
+        for a in items:
+            aid = a.get("id")
+            if aid and aid not in exclude and aid not in seen:
+                seen.add(aid)
+                candidates.append(a)
+    return candidates
 
 
 # ---------------------------------------------------------------------------
@@ -140,17 +188,10 @@ async def delete_pet(name: str, local_only: bool = False):
 
     if not local_only and person_id:
         async with httpx.AsyncClient(timeout=30) as client:
-            for ref in data.load_pet_refs(name, DATA_DIR):
-                face_id = ref.get("face_id")
-                if face_id:
-                    resp_face = await client.request("DELETE", f"{imm.IMMICH_URL}/api/faces/{face_id}", headers=imm.headers(), json={"force": True})
-                    log.info(f"Deleted face {face_id} on asset {ref.get('asset_id')} (status={resp_face.status_code})")
-                else:
-                    log.warning(f"No stored face_id for asset {ref.get('asset_id')}, skipping face deletion")
             resp = await client.delete(f"{imm.IMMICH_URL}/api/people/{person_id}", headers=imm.headers())
         if resp.status_code not in (200, 204):
             raise HTTPException(status_code=resp.status_code, detail=f"Immich error: {resp.text}")
-        log.info(f"Deleted Immich person {person_id} for pet '{name}'")
+        log.info(f"Deleted Immich person {person_id} for pet '{name}', face cleanup running in background")
 
     del config[name]
     data.save_config(config, DATA_DIR)
@@ -202,6 +243,18 @@ async def remove_negative(asset_id: str):
     ids = [i for i in data.load_negative_ids(DATA_DIR) if i != asset_id]
     data.save_negative_ids(ids, DATA_DIR)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Skipped
+# ---------------------------------------------------------------------------
+
+@router.post("/skipped")
+async def add_skipped(body: PetAssets):
+    existing = set(data.load_skipped_ids(DATA_DIR))
+    merged = list(existing | set(body.asset_ids))
+    data.save_skipped_ids(merged, DATA_DIR)
+    return {"count": len(merged)}
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +362,7 @@ async def reject_tagged_assets(name: str, body: PetAssets):
             faces_resp = await client.get(f"{imm.IMMICH_URL}/api/faces", headers=imm.headers(), params={"id": asset_id})
             if faces_resp.status_code == 200:
                 for face in faces_resp.json():
-                    if face.get("person", {}).get("id") == person_id:
+                    if (face.get("person") or {}).get("id") == person_id:
                         await client.request("DELETE", f"{imm.IMMICH_URL}/api/faces/{face.get('id')}", headers=imm.headers(), json={"force": True})
                         removed += 1
                         break
@@ -340,20 +393,25 @@ async def get_suggestions(name: str, limit: int = 20):
     ref_ids = data.load_pet_asset_ids(name, DATA_DIR)
     ref_set = set(ref_ids)
     neg_ids = set(data.load_negative_ids(DATA_DIR))
+    exclude = ref_set | neg_ids
 
-    # Stage 1: smart search to get a relevant candidate pool
-    body: dict = {"query": description, "type": "IMAGE", "limit": 60}
-    if pet_cfg.get("since"):
-        body["takenAfter"] = pet_cfg["since"] + "T00:00:00.000Z"
-    if pet_cfg.get("until"):
-        body["takenBefore"] = pet_cfg["until"] + "T23:59:59.999Z"
     async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(f"{imm.IMMICH_URL}/api/search/smart", headers=imm.headers(), json=body)
-    if resp.status_code != 200:
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        if ref_ids:
+            # Stage 1: visual search using ref photos as queries
+            candidates = await _visual_search(client, ref_ids, pet_cfg, exclude)
+        else:
+            # Fallback for 0-ref case: text search
+            body: dict = {"query": description, "type": "IMAGE", "limit": 60}
+            if pet_cfg.get("since"):
+                body["takenAfter"] = pet_cfg["since"] + "T00:00:00.000Z"
+            if pet_cfg.get("until"):
+                body["takenBefore"] = pet_cfg["until"] + "T23:59:59.999Z"
+            resp = await client.post(f"{imm.IMMICH_URL}/api/search/smart", headers=imm.headers(), json=body)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail=resp.text)
+            all_items = resp.json().get("assets", {}).get("items", [])
+            candidates = [a for a in all_items if a["id"] not in exclude]
 
-    all_items = resp.json().get("assets", {}).get("items", [])
-    candidates = [a for a in all_items if a["id"] not in ref_set and a["id"] not in neg_ids]
     if not candidates:
         return {"assets": []}
 
@@ -389,65 +447,155 @@ async def get_suggestions(name: str, limit: int = 20):
     return {"assets": [_slim_asset(a) for a in results]}
 
 
-@router.get("/suggestions/negatives")
-async def get_neg_candidates(limit: int = 60):
+@router.get("/pets/{name}/borderline")
+async def get_borderline(name: str, limit: int = 40):
     from poller import build_classifier
     config = data.load_config(DATA_DIR)
+    if name not in config:
+        raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
 
-    all_ref_ids: set[str] = set()
-    for name in config:
-        all_ref_ids.update(data.load_pet_asset_ids(name, DATA_DIR))
+    pet_cfg = config[name]
+    ref_ids = data.load_pet_asset_ids(name, DATA_DIR)
+    if not ref_ids:
+        raise HTTPException(status_code=400, detail="no_refs")
+
+    ref_set = set(ref_ids)
     neg_ids = set(data.load_negative_ids(DATA_DIR))
-    exclude = all_ref_ids | neg_ids
+    skipped_ids = set(data.load_skipped_ids(DATA_DIR))
+    exclude = ref_set | neg_ids | skipped_ids
 
-    seen: set[str] = set()
-    candidates = []
     async with httpx.AsyncClient(timeout=30) as client:
-        for name, pet_cfg in config.items():
-            description = pet_cfg.get("description", "").strip()
-            if not description:
-                continue
-            body: dict = {"query": description, "type": "IMAGE", "limit": 100}
-            if pet_cfg.get("since"):
-                body["takenAfter"] = pet_cfg["since"] + "T00:00:00.000Z"
-            if pet_cfg.get("until"):
-                body["takenBefore"] = pet_cfg["until"] + "T23:59:59.999Z"
-            resp = await client.post(f"{imm.IMMICH_URL}/api/search/smart", headers=imm.headers(), json=body)
-            if resp.status_code != 200:
-                continue
-            for a in resp.json().get("assets", {}).get("items", []):
-                aid = a.get("id")
-                if aid and aid not in exclude and aid not in seen:
-                    seen.add(aid)
-                    candidates.append(a)
+        candidates = await _visual_search(client, ref_ids, pet_cfg, exclude)
 
     if not candidates:
         return {"assets": []}
 
     all_pet_names = list(config.keys())
+    all_ref_ids = {n: data.load_pet_asset_ids(n, DATA_DIR) for n in all_pet_names}
+    pet_names = [n for n in all_pet_names if all_ref_ids.get(n)]
+    ref_ids_per_pet = {n: all_ref_ids[n] for n in pet_names}
+    negative_ids = data.load_negative_ids(DATA_DIR)
+
+    LOW, HIGH = 0.3, 0.85
+
+    state.borderline_request_id += 1
+    my_id = state.borderline_request_id
+
+    def compute():
+        state.borderline_progress["current"] = 0
+        state.borderline_progress["total"] = 0
+        state.borderline_progress["running"] = True
+        try:
+            result = build_classifier(pet_names, ref_ids_per_pet, negative_ids)
+            if result is None:
+                return []
+            names, clf, scaler = result
+            if name not in names:
+                return []
+            pet_idx = names.index(name)
+            state.borderline_progress["total"] = len(candidates)
+            scored = []
+            for i, a in enumerate(candidates):
+                if state.borderline_request_id != my_id:
+                    return []
+                state.borderline_progress["current"] = i + 1
+                vec = embed_asset(a["id"])
+                if vec is not None:
+                    v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
+                    pet_prob = float(clf.predict_proba(scaler.transform(v))[0][pet_idx])
+                    if LOW <= pet_prob < HIGH:
+                        scored.append((pet_prob, a))
+            scored.sort(key=lambda x: x[0])
+            return scored[:limit]
+        finally:
+            if state.borderline_request_id == my_id:
+                state.borderline_progress["running"] = False
+
+    from poller import THRESHOLD
+    scored = await asyncio.to_thread(compute)
+    return {
+        "assets": [{**_slim_asset(a), "score": round(prob, 3)} for prob, a in scored],
+        "threshold": THRESHOLD,
+    }
+
+
+@router.get("/pets/{name}/borderline/progress")
+async def get_borderline_progress(name: str):
+    return state.borderline_progress
+
+
+@router.get("/suggestions/negatives")
+async def get_neg_candidates(limit: int = 60):
+    from poller import build_classifier, THRESHOLD
+    config = data.load_config(DATA_DIR)
+
+    all_pet_names = list(config.keys())
     ref_ids_per_pet = {n: data.load_pet_asset_ids(n, DATA_DIR) for n in all_pet_names}
+    all_ref_ids: set[str] = {rid for ids in ref_ids_per_pet.values() for rid in ids}
+    neg_ids = set(data.load_negative_ids(DATA_DIR))
+    skipped_ids = set(data.load_skipped_ids(DATA_DIR))
+    exclude = all_ref_ids | neg_ids | skipped_ids
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{imm.IMMICH_URL}/api/search/random",
+            headers=imm.headers(),
+            json={"count": 100, "type": "IMAGE"},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+    candidates = [a for a in resp.json() if isinstance(a, dict) and a.get("id") not in exclude]
+
+    if not candidates:
+        return {"assets": [], "threshold": THRESHOLD}
+
     pet_names = [n for n in all_pet_names if ref_ids_per_pet.get(n)]
     negative_ids = data.load_negative_ids(DATA_DIR)
 
-    def compute():
-        result = build_classifier(pet_names, ref_ids_per_pet, negative_ids)
-        if result is None:
-            return candidates[:limit]
-        names, clf, scaler = result
-        unknown_idx = names.index("unknown") if "unknown" in names else -1
-        scored = []
-        for a in candidates:
-            vec = embed_asset(a["id"])
-            if vec is not None:
-                v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
-                probs = clf.predict_proba(scaler.transform(v))[0]
-                pet_prob = (1.0 - float(probs[unknown_idx])) if unknown_idx >= 0 else 0.0
-                scored.append((pet_prob, a))
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return [a for _, a in scored[:limit]]
+    state.neg_request_id += 1
+    my_id = state.neg_request_id
 
-    results = await asyncio.to_thread(compute)
-    return {"assets": [_slim_asset(a) for a in results]}
+    def compute():
+        state.neg_progress["current"] = 0
+        state.neg_progress["total"] = 0
+        state.neg_progress["running"] = True
+        try:
+            result = build_classifier(pet_names, ref_ids_per_pet, negative_ids)
+            if result is None:
+                return []
+            names, clf, scaler = result
+            unknown_idx = names.index("unknown") if "unknown" in names else -1
+            state.neg_progress["total"] = len(candidates)
+            scored = []
+            for i, a in enumerate(candidates):
+                if state.neg_request_id != my_id:
+                    return []
+                state.neg_progress["current"] = i + 1
+                vec = embed_asset(a["id"])
+                if vec is not None:
+                    v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
+                    probs = clf.predict_proba(scaler.transform(v))[0]
+                    pet_prob = (1.0 - float(probs[unknown_idx])) if unknown_idx >= 0 else 0.0
+                    # Skip photos the classifier thinks are pets. Those belong in refs, not negatives.
+                    if pet_prob < THRESHOLD:
+                        scored.append((pet_prob, a))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            return scored[:limit]
+        finally:
+            if state.neg_request_id == my_id:
+                state.neg_progress["running"] = False
+
+    scored = await asyncio.to_thread(compute)
+    return {
+        "assets": [{**_slim_asset(a), "score": round(prob, 3)} for prob, a in scored],
+        "threshold": THRESHOLD,
+    }
+
+
+@router.get("/suggestions/negatives/progress")
+async def get_neg_progress():
+    return state.neg_progress
 
 
 # ---------------------------------------------------------------------------
@@ -534,6 +682,69 @@ async def set_timestamp(body: TimestampBody):
     data.save_last_timestamp(ts, DATA_DIR)
     log.info(f"Scan timestamp reset to {ts}")
     return {"timestamp": ts}
+
+
+@router.post("/scan")
+async def trigger_scan():
+    import state
+    if state.scan_lock is not None and state.scan_lock.locked():
+        state.scan_cancel.set()
+    state.scan_generation += 1
+    asyncio.create_task(_run_manual_scan(state.scan_generation))
+    return {"status": "started"}
+
+
+async def _run_manual_scan(generation: int):
+    import state
+    from poller import run_poll_cycle
+    from datetime import datetime, timezone
+    live_counts: dict = {}
+    state.manual_scan_result = {"status": "running", "started_at": datetime.now(timezone.utc).isoformat(), "counts": live_counts}
+    state.scan_low_conf_assets = []
+    low_conf_assets: list = []
+
+    def on_date(date_str):
+        if isinstance(state.manual_scan_result, dict):
+            state.manual_scan_result["current_date"] = date_str
+
+    try:
+        async with state.scan_lock:
+            if state.scan_generation != generation:
+                return
+            state.scan_cancel.clear()
+            await asyncio.to_thread(run_poll_cycle, DATA_DIR, on_date, state.scan_cancel, low_conf_assets, live_counts)
+            if state.scan_generation == generation:
+                state.scan_low_conf_assets = low_conf_assets
+                state.manual_scan_result = data.load_poll_status(DATA_DIR)
+    except Exception as e:
+        if state.scan_generation == generation:
+            state.manual_scan_result = {"status": "error", "error": str(e), "ran_at": datetime.now(timezone.utc).isoformat()}
+
+
+@router.get("/scan/result")
+async def get_scan_result():
+    return state.manual_scan_result or {"status": "none"}
+
+
+@router.get("/scan/low-confidence")
+async def get_scan_low_confidence():
+    from poller import THRESHOLD
+    config = data.load_config(DATA_DIR)
+    seen: dict = {}
+    for a in (state.scan_low_conf_assets or []):
+        aid = a["asset_id"]
+        if aid not in seen or a["prob"] > seen[aid]["prob"]:
+            seen[aid] = a
+    sorted_assets = sorted(seen.values(), key=lambda a: a["prob"])
+    return {
+        "assets": [
+            {"id": a["asset_id"], "thumb": f"/api/thumb/{a['asset_id']}",
+             "pet_name": a["pet_name"], "score": a["prob"], "date": a.get("date", "")}
+            for a in sorted_assets
+        ],
+        "pets": list(config.keys()),
+        "threshold": THRESHOLD,
+    }
 
 
 # ---------------------------------------------------------------------------

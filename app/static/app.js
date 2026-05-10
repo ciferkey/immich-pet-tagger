@@ -1,4 +1,4 @@
-let pets = [], activePet = null, selectedIds = new Set(), refsIds = [], negIds = [], immichUrl = 'http://localhost:2283', taggedMode = false, negCandidateMode = false, lastClickedId = null;
+let pets = [], activePet = null, selectedIds = new Set(), refsIds = [], negIds = [], immichUrl = 'http://localhost:2283', taggedMode = false, negCandidateMode = false, borderlineMode = false, scanLowConfMode = false, lastClickedId = null, lastNegTopScore = null, negGeneration = 0, negPollTimer = null, blGeneration = 0, blPollTimer = null;
 
 async function api(path, opts = {}) {
   const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
@@ -31,6 +31,12 @@ async function loadPets(keepActive = false) {
   try {
     const d = await api('/api/pets');
     pets = d.pets;
+    if (activePet) {
+      activePet = pets.find(p => p.name === activePet.name) || activePet;
+      const hasRefs = activePet.ref_count > 0;
+      const bb = document.getElementById('borderlineBtn');
+      if (bb) { bb.disabled = !hasRefs; bb.title = hasRefs ? '' : 'Add refs first'; }
+    }
     renderSidebar();
     updateNegStatus();
     if (!keepActive && !activePet && pets.length > 0) await selectPet(pets[0].name);
@@ -73,7 +79,7 @@ async function selectPet(name) {
     const ok = confirm(`You have ${selectedIds.size} selected photo${selectedIds.size !== 1 ? 's' : ''} not yet assigned. Switch anyway?`);
     if (!ok) return;
   }
-  taggedMode = false; negCandidateMode = false;
+  taggedMode = false; negCandidateMode = false; borderlineMode = false; scanLowConfMode = false;
   activePet = pets.find(p => p.name === name);
   clearSearch(); renderSidebar();
   document.getElementById('refsTitle').textContent = name;
@@ -81,6 +87,10 @@ async function selectPet(name) {
   document.getElementById('taggedBtn').style.display = '';
   document.getElementById('taggedBtn').textContent = 'Tagged';
   document.getElementById('clearRefsBtn').style.display = '';
+  const hasRefs = activePet && activePet.ref_count > 0;
+  const bb = document.getElementById('borderlineBtn');
+  bb.disabled = !hasRefs;
+  bb.title = hasRefs ? '' : 'Add refs first';
   await loadRefs(name);
   await loadNegatives();
 }
@@ -151,8 +161,9 @@ async function viewSuggestions() {
       return;
     }
     grid.innerHTML = d.assets.map(a => `
-      <div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename} · ${a.date}">
+      <div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename} · ${fmtDate(a.date)}">
         <img src="${a.thumb}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
+        <a class="photo-open" href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">⤢</a>
         <div class="photo-check">✓</div>
       </div>`).join('');
     const refSet = new Set(refsIds), negSet = new Set(negIds);
@@ -164,6 +175,62 @@ async function viewSuggestions() {
     label.textContent = 'Failed to load suggestions';
     grid.innerHTML = `<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-sub">${e.message}</div></div>`;
     toast('Suggestions error: ' + e.message, 'error');
+  }
+}
+
+async function viewBorderline() {
+  if (!activePet || !activePet.ref_count) return;
+  const myGen = ++blGeneration;
+  if (blPollTimer) { clearInterval(blPollTimer); blPollTimer = null; }
+  taggedMode = false; negCandidateMode = false; borderlineMode = true;
+  selectedIds.clear(); lastClickedId = null; updateSelUI();
+  const grid = document.getElementById('photoGrid');
+  const label = document.getElementById('resultsLabel');
+  const petName = activePet.name;
+  grid.innerHTML = '<div class="loading" id="blLoadMsg" style="grid-column:1/-1">Loading…</div>';
+  label.textContent = 'Finding missed photos…';
+
+  blPollTimer = setInterval(async () => {
+    if (blGeneration !== myGen) { clearInterval(blPollTimer); blPollTimer = null; return; }
+    try {
+      const p = await api(`/api/pets/${encodeURIComponent(petName)}/borderline/progress`);
+      const el = document.getElementById('blLoadMsg');
+      if (!el) return;
+      if (p.total > 0) el.textContent = `Loading ${Math.round(p.current / p.total * 100)}%…`;
+      else if (p.running) el.textContent = 'Loading…';
+    } catch(_) {}
+  }, 1000);
+
+  try {
+    const d = await api(`/api/pets/${encodeURIComponent(petName)}/borderline`);
+    clearInterval(blPollTimer); blPollTimer = null;
+    if (blGeneration !== myGen) return;
+    label.textContent = `${d.assets.length} photo${d.assets.length !== 1 ? 's' : ''} ${petName} might be missing. Add good ones as refs to improve accuracy.`;
+    if (!d.assets.length) {
+      grid.innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-icon">🐾</div><div class="empty-title">No missed photos found</div><div class="empty-sub">The classifier is either very confident or not finding this pet at all</div></div>';
+      return;
+    }
+    const thr = d.threshold ?? 0.8;
+    grid.innerHTML = d.assets.map(a => {
+      const cls = a.score < thr ? 'score-low' : 'score-ok';
+      return `<div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename} · ${fmtDate(a.date)}">
+        <img src="${a.thumb}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
+        <a class="photo-open" href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">⤢</a>
+        <div class="photo-check">✓</div>
+        <div class="score-badge ${cls}">${Math.round(a.score * 100)}%</div>
+      </div>`;
+    }).join('');
+    const refSet = new Set(refsIds), negSet = new Set(negIds);
+    d.assets.forEach(a => {
+      if (refSet.has(a.id)) document.getElementById('th-' + a.id)?.classList.add('is-ref');
+      if (negSet.has(a.id)) document.getElementById('th-' + a.id)?.classList.add('is-neg');
+    });
+  } catch(e) {
+    clearInterval(blPollTimer); blPollTimer = null;
+    if (blGeneration !== myGen) return;
+    label.textContent = 'Failed to load missed photos';
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-sub">${e.message}</div></div>`;
+    toast('Error: ' + e.message, 'error');
   }
 }
 
@@ -189,8 +256,9 @@ async function viewTagged() {
       return;
     }
     grid.innerHTML = d.assets.map(a => `
-      <div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename || a.id} · ${a.date}">
+      <div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename || a.id} · ${fmtDate(a.date)}">
         <img src="${a.thumb}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
+        <a class="photo-open" href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">⤢</a>
         <div class="photo-check">✓</div>
       </div>`).join('');
   } catch(e) {
@@ -249,9 +317,23 @@ function toggleSelect(e, id) {
 function updateSelUI() {
   const n = selectedIds.size;
   document.getElementById('selCount').textContent = n ? `${n} selected` : '';
-  document.getElementById('assignBtn').style.display = (n && activePet && !taggedMode && !negCandidateMode) ? '' : 'none';
-  document.getElementById('addNegBtn').style.display = (n && !taggedMode) ? '' : 'none';
+  document.getElementById('assignBtn').style.display = (n && activePet && !taggedMode && !negCandidateMode && !scanLowConfMode) ? '' : 'none';
+  document.getElementById('skipBtn').style.display = (n && !taggedMode) ? '' : 'none';
+  document.getElementById('addNegBtn').style.display = (n && !taggedMode && !scanLowConfMode) ? '' : 'none';
   document.getElementById('rejectBtn').style.display = (n && taggedMode) ? '' : 'none';
+  document.getElementById('scanPetBtns').style.display = (n && scanLowConfMode) ? 'flex' : 'none';
+  document.getElementById('scanNegBtn').style.display = (n && scanLowConfMode) ? '' : 'none';
+}
+
+async function skipSelected() {
+  if (!selectedIds.size) return;
+  const ids = [...selectedIds];
+  try {
+    await api('/api/skipped', { method: 'POST', body: { asset_ids: ids } });
+    ids.forEach(id => document.getElementById('th-' + id)?.remove());
+    selectedIds.clear(); updateSelUI();
+    toast(`Skipped ${ids.length} photo${ids.length !== 1 ? 's' : ''}`, 'success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
 // ---------------------------------------------------------------------------
@@ -259,16 +341,22 @@ function updateSelUI() {
 // ---------------------------------------------------------------------------
 
 function updateNegStatus() {
-  const totalRefs = pets.reduce((s, p) => s + p.ref_count, 0);
   const el = document.getElementById('negCount');
   const count = negIds.length;
-  if (totalRefs === 0) { el.textContent = count; el.style.color = ''; return; }
-  const lo = totalRefs * 2, hi = totalRefs * 3;
-  if (count < lo) {
-    el.textContent = `${count} / ${lo}-${hi} needed`;
-    el.style.color = 'var(--danger)';
-  } else {
+  if (lastNegTopScore === null) {
     el.textContent = count;
+    el.style.color = '';
+    return;
+  }
+  const pct = Math.round(lastNegTopScore * 100);
+  if (lastNegTopScore >= 0.1) {
+    el.textContent = `${count} · top ${pct}%, add more`;
+    el.style.color = 'var(--danger)';
+  } else if (lastNegTopScore >= 0.05) {
+    el.textContent = `${count} · top ${pct}%`;
+    el.style.color = 'var(--text2)';
+  } else {
+    el.textContent = `${count} · calibrated`;
     el.style.color = 'var(--success)';
   }
 }
@@ -297,36 +385,62 @@ async function addSelectedAsNegatives() {
     await api('/api/negatives', { method: 'POST', body: { asset_ids: [...selectedIds] } });
     negIds = [...new Set([...negIds, ...selectedIds])];
     document.querySelectorAll('.photo-thumb.selected').forEach(el => { el.classList.remove('selected'); el.classList.add('is-neg'); });
-    selectedIds.clear(); updateSelUI();
+    selectedIds.clear(); lastNegTopScore = null; updateSelUI();
     await loadNegatives();
     toast('Added to "not my pets"', 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
 async function viewNegCandidates() {
+  const myGen = ++negGeneration;
+  if (negPollTimer) { clearInterval(negPollTimer); negPollTimer = null; }
   negCandidateMode = true; taggedMode = false;
   selectedIds.clear(); lastClickedId = null; updateSelUI();
   const grid = document.getElementById('photoGrid');
   const label = document.getElementById('resultsLabel');
-  grid.innerHTML = '<div class="loading" style="grid-column:1/-1">Finding candidates across all pets… this may take a moment</div>';
+  grid.innerHTML = '<div class="loading" id="negLoadMsg" style="grid-column:1/-1">Loading…</div>';
   label.textContent = 'Finding candidates…';
+
+  negPollTimer = setInterval(async () => {
+    if (negGeneration !== myGen) { clearInterval(negPollTimer); negPollTimer = null; return; }
+    try {
+      const p = await api('/api/suggestions/negatives/progress');
+      const el = document.getElementById('negLoadMsg');
+      if (!el) return;
+      if (p.total > 0) el.textContent = `Loading ${Math.round(p.current / p.total * 100)}%…`;
+      else if (p.running) el.textContent = 'Loading…';
+    } catch(_) {}
+  }, 1000);
+
   try {
     const d = await api('/api/suggestions/negatives');
+    clearInterval(negPollTimer); negPollTimer = null;
+    if (negGeneration !== myGen) return;
+    lastNegTopScore = d.assets.length > 0 ? (d.assets[0].score ?? null) : 0;
+    updateNegStatus();
     label.textContent = `${d.assets.length} candidate${d.assets.length !== 1 ? 's' : ''} for "not my pets"`;
     if (!d.assets.length) {
-      grid.innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-icon">🐾</div><div class="empty-title">No candidates found</div><div class="empty-sub">Add more refs or descriptions to your pets</div></div>';
+      grid.innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-icon">🐾</div><div class="empty-title">No candidates found</div><div class="empty-sub">Classifier is well calibrated</div></div>';
       return;
     }
-    grid.innerHTML = d.assets.map(a => `
-      <div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename} · ${a.date}">
+    const thr = d.threshold || 0.8;
+    grid.innerHTML = d.assets.map(a => {
+      const cls = a.score != null ? (a.score < thr ? 'score-low' : 'score-ok') : '';
+      const badge = a.score != null ? `<div class="score-badge ${cls}">${Math.round(a.score * 100)}%</div>` : '';
+      return `<div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename} · ${fmtDate(a.date)}">
         <img src="${a.thumb}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
+        <a class="photo-open" href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">⤢</a>
         <div class="photo-check">✓</div>
-      </div>`).join('');
+        ${badge}
+      </div>`;
+    }).join('');
     const negSet = new Set(negIds);
     d.assets.forEach(a => {
       if (negSet.has(a.id)) document.getElementById('th-' + a.id)?.classList.add('is-neg');
     });
   } catch(e) {
+    clearInterval(negPollTimer); negPollTimer = null;
+    if (negGeneration !== myGen) return;
     label.textContent = 'Failed to load candidates';
     grid.innerHTML = `<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-sub">${e.message}</div></div>`;
     toast('Error: ' + e.message, 'error');
@@ -349,7 +463,7 @@ async function clearAllNegatives() {
   if (!confirm(`Remove all "not my pets" photos from this tool? This will not affect Immich.`)) return;
   try {
     await api('/api/negatives/all', { method: 'DELETE' });
-    negIds = [];
+    negIds = []; lastNegTopScore = null;
     await loadNegatives();
     toast('All "not my pets" cleared', 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
@@ -369,6 +483,13 @@ async function removeNegative(id) {
 // Poll status
 // ---------------------------------------------------------------------------
 
+function fmtDate(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.slice(0, 10).split('-');
+  return new Date(+y, m - 1, +d).toLocaleDateString();
+}
+
+
 function relativeTime(iso) {
   const diff = Math.floor((Date.now() - new Date(iso)) / 1000);
   if (diff < 60) return `${diff}s ago`;
@@ -377,34 +498,6 @@ function relativeTime(iso) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-async function loadPollStatus() {
-  try {
-    const d = await api('/api/poll-status');
-    const badge = document.getElementById('pollBadge');
-    const timeEl = document.getElementById('pollTime');
-    const statsEl = document.getElementById('pollStats');
-    badge.className = `poll-badge ${d.status}`;
-    badge.textContent = d.status === 'running' ? 'Scanning...' : d.status === 'error' ? 'Error' : d.status === 'never' ? 'Never run' : 'Idle';
-    if (d.ran_at) timeEl.textContent = relativeTime(d.ran_at);
-    else if (d.started_at) timeEl.textContent = `Started ${relativeTime(d.started_at)}`;
-    else timeEl.textContent = '';
-    if (d.counts) {
-      const c = d.counts;
-      const stat = (label, val, cls) => `<div class="poll-stat"><span class="poll-stat-label">${label}</span><span class="poll-stat-val ${val > 0 ? cls : ''}">${val}</span></div>`;
-      statsEl.innerHTML =
-        stat('Tagged', c.added, 'nonzero-good') +
-        stat('Low conf.', c.low_confidence, 'nonzero-warn') +
-        stat('Unknown', c.unknown, '') +
-        stat('Out of range', c.out_of_range, '') +
-        stat('Already tagged', c.already_tagged, '') +
-        (c.failed > 0 ? stat('Failed', c.failed, 'nonzero-bad') : '') +
-        (c.no_thumb > 0 ? stat('No thumb', c.no_thumb, 'nonzero-warn') : '');
-    } else {
-      statsEl.innerHTML = '';
-    }
-    if (d.error) timeEl.textContent += (timeEl.textContent ? '. ' : '') + d.error;
-  } catch(e) {}
-}
 
 // ---------------------------------------------------------------------------
 // Scan timestamp
@@ -417,13 +510,131 @@ async function loadTimestamp() {
   } catch(e) {}
 }
 
+async function loadScanResult() {
+  try { showScanResult(await api('/api/scan/result')); } catch(_) {}
+}
+
+function showScanResult(r) {
+  const el = document.getElementById('scanResult');
+  if (!r || r.status === 'none') { el.style.display = 'none'; return; }
+  el.className = 'scan-result';
+  el.style.display = '';
+  const stat = (label, val, cls) => `<div class="poll-stat"><span class="poll-stat-label">${label}</span><span class="poll-stat-val ${val > 0 ? cls : ''}">${val}</span></div>`;
+  if (r.status === 'running') {
+    const dateStr = r.current_date ? new Date(r.current_date + 'T00:00:00').toLocaleDateString() : '';
+    const c = r.counts || {};
+    el.innerHTML = '<div class="scan-result-header">Scanning…</div>' +
+      (dateStr ? `<div style="font-size:11px;color:var(--text3);margin-top:4px;">${dateStr}</div>` : '') +
+      '<div class="poll-stats" style="margin-top:6px;">' +
+      stat('Tagged', c.added || 0, 'nonzero-good') +
+      stat('Low conf.', c.low_confidence || 0, 'nonzero-warn') +
+      stat('Other', c.unknown || 0, '') +
+      stat('Already tagged', c.already_tagged || 0, '') +
+      (c.failed > 0 ? stat('Failed', c.failed, 'nonzero-bad') : '') +
+      '</div>';
+    return;
+  }
+  if (r.status === 'error') {
+    el.innerHTML = `<div class="scan-result-header">Scan failed</div><div style="font-size:11px;color:var(--danger);margin-top:4px;">${r.error || ''}</div>`;
+    return;
+  }
+  if (r.counts) {
+    const c = r.counts;
+    el.innerHTML = '<div class="scan-result-header">Scan result</div>' +
+      '<div class="poll-stats" style="margin-top:6px;">' +
+      stat('Tagged', c.added, 'nonzero-good') +
+      stat('Low conf.', c.low_confidence, 'nonzero-warn') +
+      stat('Other', c.unknown, '') +
+      stat('Out of range', c.out_of_range, '') +
+      stat('Already tagged', c.already_tagged, '') +
+      (c.failed > 0 ? stat('Failed', c.failed, 'nonzero-bad') : '') +
+      (c.no_thumb > 0 ? stat('No thumb', c.no_thumb, 'nonzero-warn') : '') +
+      '</div>' +
+      (c.low_confidence > 0 ? `<button class="btn" style="font-size:11px;margin-top:8px;width:100%;" onclick="viewScanLowConf()">Review ${c.low_confidence} low confidence</button>` : '');
+  }
+}
+
+async function viewScanLowConf() {
+  scanLowConfMode = true;
+  taggedMode = false; negCandidateMode = false; borderlineMode = false;
+  selectedIds.clear(); lastClickedId = null;
+  const grid = document.getElementById('photoGrid');
+  const label = document.getElementById('resultsLabel');
+  grid.innerHTML = '<div class="loading" style="grid-column:1/-1">Loading low confidence results…</div>';
+  label.textContent = 'Loading…';
+  const scanPetBtns = document.getElementById('scanPetBtns');
+  scanPetBtns.innerHTML = pets.map(p => `<button class="btn btn-primary" style="font-size:11px; padding:4px 10px;">${p.name}</button>`).join('');
+  [...scanPetBtns.children].forEach((btn, i) => { btn.onclick = () => scanAssignSelected(pets[i].name); });
+  updateSelUI();
+  try {
+    const d = await api('/api/scan/low-confidence');
+    if (!d.assets.length) {
+      label.textContent = 'No low confidence results';
+      grid.innerHTML = '<div class="empty" style="grid-column:1/-1; height:200px;"><div class="empty-sub">All results were confident or unknown</div></div>';
+      return;
+    }
+    label.textContent = `${d.assets.length} low confidence result${d.assets.length !== 1 ? 's' : ''}`;
+    const thr = d.threshold ?? 0.8;
+    const negSet = new Set(negIds);
+    grid.innerHTML = d.assets.map(a => {
+      const cls = a.score < thr ? 'score-low' : 'score-ok';
+      return `<div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${fmtDate(a.date)} · ${Math.round(a.score * 100)}% ${a.pet_name}">
+        <img src="${a.thumb}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
+        <a class="photo-open" href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">⤢</a>
+        <div class="photo-check">✓</div>
+        <div class="score-badge ${cls}">${Math.round(a.score * 100)}%</div>
+      </div>`;
+    }).join('');
+    d.assets.forEach(a => { if (negSet.has(a.id)) document.getElementById('th-' + a.id)?.classList.add('is-neg'); });
+  } catch(e) {
+    label.textContent = 'Failed to load';
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1; height:200px;"><div class="empty-sub">${e.message}</div></div>`;
+  }
+}
+
+async function scanAssignSelected(petName) {
+  if (!selectedIds.size) return;
+  const ids = [...selectedIds];
+  try {
+    const existing = await api(`/api/pets/${encodeURIComponent(petName)}/assets`);
+    const merged = [...new Set([...existing.assets.map(a => a.id), ...ids])];
+    await api(`/api/pets/${encodeURIComponent(petName)}/assets`, { method: 'POST', body: { asset_ids: merged } });
+    ids.forEach(id => { const el = document.getElementById('th-' + id); if (el) { el.classList.remove('selected'); el.classList.add('is-ref'); } });
+    selectedIds.clear(); updateSelUI();
+    await refreshState();
+    toast(`Added ${ids.length} to ${petName}`, 'success');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function scanNegSelected() {
+  if (!selectedIds.size) return;
+  const ids = [...selectedIds];
+  try {
+    await api('/api/negatives', { method: 'POST', body: { asset_ids: ids } });
+    ids.forEach(id => { const el = document.getElementById('th-' + id); if (el) { el.classList.remove('selected'); el.classList.add('is-neg'); } });
+    selectedIds.clear(); updateSelUI();
+    await loadNegatives();
+    toast(`Added ${ids.length} to "not my pets"`, 'success');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
 async function applyTimestamp() {
   const val = document.getElementById('scanDate').value;
   if (!val) { toast('Pick a date first', 'error'); return; }
   try {
     await api('/api/timestamp', { method: 'POST', body: { date: val } });
-    toast('Scan date updated. Takes effect on next poll.', 'success');
-  } catch(e) { toast('Error: ' + e.message, 'error'); }
+    await api('/api/scan', { method: 'POST' });
+    showScanResult({ status: 'running' });
+    const iv = setInterval(async () => {
+      try {
+        const r = await api('/api/scan/result');
+        showScanResult(r);
+        if (r.status !== 'running') { clearInterval(iv); }
+      } catch(_) {}
+    }, 2000);
+  } catch(e) {
+    toast(e.message, 'error');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -449,13 +660,9 @@ async function submitAddPet() {
   if (!description) { modalError('addPetError', 'Description is required'); return; }
   const sinceRaw = document.getElementById('petSince').value;
   const untilRaw = document.getElementById('petUntil').value;
-  const sinceEl = document.getElementById('petSince');
-  const untilEl = document.getElementById('petUntil');
-  if (sinceEl.value === '' && sinceEl.validity && !sinceEl.validity.valid && sinceEl.validity.badInput) { modalError('addPetError', 'Incomplete "since" date'); return; }
-  if (untilEl.value === '' && untilEl.validity && !untilEl.validity.valid && untilEl.validity.badInput) { modalError('addPetError', 'Incomplete "until" date'); return; }
   const dateRe = /^\d{4}-\d{2}-\d{2}$/;
-  if (sinceRaw && !dateRe.test(sinceRaw)) { modalError('addPetError', 'Invalid "since" date. Use YYYY-MM-DD'); return; }
-  if (untilRaw && !dateRe.test(untilRaw)) { modalError('addPetError', 'Invalid "until" date. Use YYYY-MM-DD'); return; }
+  if (sinceRaw && !dateRe.test(sinceRaw)) { modalError('addPetError', 'Invalid "since" date'); return; }
+  if (untilRaw && !dateRe.test(untilRaw)) { modalError('addPetError', 'Invalid "until" date'); return; }
   if (sinceRaw && untilRaw && sinceRaw > untilRaw) { modalError('addPetError', '"Since" must be before "until"'); return; }
   try {
     await api('/api/pets', { method: 'POST', body: { name, description, since: sinceRaw || null, until: untilRaw || null } });
@@ -490,13 +697,9 @@ async function submitEditPet() {
   if (!description) { modalError('editPetError', 'Description is required'); return; }
   const sinceRaw = document.getElementById('editPetSince').value;
   const untilRaw = document.getElementById('editPetUntil').value;
-  const sinceEl = document.getElementById('editPetSince');
-  const untilEl = document.getElementById('editPetUntil');
-  if (sinceEl.value === '' && sinceEl.validity && !sinceEl.validity.valid && sinceEl.validity.badInput) { modalError('editPetError', 'Incomplete "since" date'); return; }
-  if (untilEl.value === '' && untilEl.validity && !untilEl.validity.valid && untilEl.validity.badInput) { modalError('editPetError', 'Incomplete "until" date'); return; }
   const dateRe = /^\d{4}-\d{2}-\d{2}$/;
-  if (sinceRaw && !dateRe.test(sinceRaw)) { modalError('editPetError', 'Invalid "since" date. Use YYYY-MM-DD'); return; }
-  if (untilRaw && !dateRe.test(untilRaw)) { modalError('editPetError', 'Invalid "until" date. Use YYYY-MM-DD'); return; }
+  if (sinceRaw && !dateRe.test(sinceRaw)) { modalError('editPetError', 'Invalid "since" date'); return; }
+  if (untilRaw && !dateRe.test(untilRaw)) { modalError('editPetError', 'Invalid "until" date'); return; }
   if (sinceRaw && untilRaw && sinceRaw > untilRaw) { modalError('editPetError', '"Since" must be before "until"'); return; }
   try {
     await api(`/api/pets/${encodeURIComponent(_petToEdit)}`, { method: 'PATCH', body: { name, description, since: sinceRaw || null, until: untilRaw || null } });
@@ -514,10 +717,8 @@ let _petToDelete = null;
 
 function openDeletePet(name) {
   _petToDelete = name;
-  const p = pets.find(p => p.name === name);
-  const refs = p ? p.ref_count : 0;
   document.getElementById('deleteWarningText').textContent =
-    `"Delete from Immich too" removes the person and untags all ${refs} photo${refs !== 1 ? 's' : ''} in Immich permanently. Your photos are not deleted.`;
+    `"Delete from Immich too" removes the person and untags all tagged photos in Immich permanently. Your photos are not deleted.`;
   document.getElementById('deleteLocalOnlyText').textContent =
     `"Remove from tool only" keeps ${name} in Immich with all tagged photos intact, but stops auto-tagging new photos. Your photos are not deleted. You can re-import it later.`;
   document.getElementById('deletePetModal').classList.add('open');
@@ -537,7 +738,7 @@ async function confirmDeletePet(localOnly) {
       document.getElementById('refsGrid').innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-sub">Select a pet</div></div>';
     }
     await refreshState();
-    toast(localOnly ? `Removed ${name} from tool` : `Deleted ${name}`, 'success');
+    toast(localOnly ? `Removed ${name} from tool` : `Deleted ${name}. Immich will clean up faces in the background.`, 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
@@ -644,6 +845,5 @@ document.getElementById('importDetailModal').addEventListener('click', function(
 (async () => {
   await refreshState();
   loadTimestamp();
-  loadPollStatus();
-  setInterval(loadPollStatus, 30000);
+  loadScanResult();
 })();

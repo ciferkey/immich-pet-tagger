@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.4.0
+
+### Features
+- **YOLO animal detection**: bounding boxes are computed before classification. Multi-pet photos are handled per crop, so each animal in the frame is classified separately. Improves accuracy and enables tagging photos with more than one pet.
+- **Visual ref search**: "Find similar photos" now uses ref asset images as the CLIP query instead of text description, producing far more relevant candidates.
+- **Find missed photos**: new "Find missed" button scores borderline candidates with the classifier and surfaces photos just below the confidence threshold. Useful for finding good refs to improve recall.
+- **Score-based negatives calibration**: "Find not my pets" uses the classifier to exclude photos the model already considers pets, ensuring only genuinely ambiguous photos are surfaced as negatives.
+- **Live scan**: the scan panel shows live per-category counts (Tagged, Low conf., Other, Already tagged) and the current photo date while scanning. Triggering a new scan cancels any in-progress one.
+- **Review low confidence**: after a scan, a new "Review X low confidence" button lists photos the classifier identified as a pet but scored below threshold, sorted by score with color-coded badges.
+- **Open in Immich**: each thumbnail in all photo grids now has a direct link icon to open the asset in Immich.
+- **Embedding cache persisted to disk**: CLIP embeddings are saved to `data/embeddings.pkl` and reloaded on startup, so restarts no longer re-embed all ref and negative photos.
+
+### Fixes
+- **Critical: duplicate face prevention**: `"person": null` faces (Immich-detected but unassigned) caused the existing-faces check to throw and return an empty set, bypassing deduplication and creating duplicate tags. Fixed with a null guard in all face lookup paths.
+- **Pagination cap removed**: asset search was silently stopping at 1000 results due to a `total` field that Immich caps at 1000. Now paginates correctly until the page is smaller than the page size.
+- **Scan dedup across YOLO crops**: a person was not marked as tagged when face_id retrieval failed after a successful POST, causing the same pet to be re-tagged on subsequent crops of the same photo.
+- **Pet delete**: per-ref face deletion loop removed. Deleting the Immich person cascades face removal automatically.
+- **activePet stale reference**: "Find missed" button stayed disabled after re-enrollment because the in-memory pet reference was not refreshed after `loadPets()`.
+- Responsive photo grid (auto-fill columns instead of fixed 4).
+- Browser locale used for date formatting in tooltips and date inputs.
+
+### Docs
+- README rewritten with features overview, docker-compose setup, and enrollment tutorial.
+- Added guidance on picking good reference photos (skip multi-pet, blurry, or ambiguous frames).
+
+---
+
 ## v0.3.0
 
 ### Features

@@ -3,6 +3,7 @@ No DB access. Embeddings computed from thumbnails via the Immich HTTP API."""
 
 import logging
 import os
+import pickle
 import random
 import time
 from datetime import datetime, timezone
@@ -31,6 +32,8 @@ CLIP_PRETRAINED = os.environ.get("CLIP_PRETRAINED", "openai")
 _clip_model = None
 _clip_preprocess = None
 _clip_device = None
+_embed_cache: dict[str, np.ndarray] = {}
+_cache_path: Path | None = None
 
 
 def get_clip():
@@ -102,9 +105,59 @@ def embed_image(img: Image.Image) -> np.ndarray | None:
         return None
 
 
+def crop_animals(img: Image.Image) -> list[tuple[tuple, Image.Image]]:
+    """Detect animals and return (bbox_norm, crop) pairs. Empty list means no animals found."""
+    try:
+        from detector import detect_animals
+        boxes = detect_animals(img)
+    except Exception as e:
+        log.warning(f"YOLO detection failed: {e}")
+        return []
+    w, h = img.size
+    return [
+        (bbox, img.crop((int(bbox[0] * w), int(bbox[1] * h), int(bbox[2] * w), int(bbox[3] * h))))
+        for bbox in boxes
+    ]
+
+
+def load_embed_cache(data_dir: Path) -> None:
+    global _cache_path
+    _cache_path = data_dir / "embeddings.pkl"
+    if _cache_path.exists():
+        try:
+            with open(_cache_path, "rb") as f:
+                _embed_cache.update(pickle.load(f))
+            log.info(f"Loaded {len(_embed_cache)} cached embeddings from {_cache_path}")
+        except Exception as e:
+            log.warning(f"Could not load embedding cache: {e}")
+
+
+def _save_embed_cache() -> None:
+    if _cache_path is None:
+        return
+    tmp = _cache_path.with_suffix(".tmp")
+    try:
+        with open(tmp, "wb") as f:
+            pickle.dump(_embed_cache, f)
+        tmp.replace(_cache_path)
+    except Exception as e:
+        log.warning(f"Could not save embedding cache: {e}")
+
+
 def embed_asset(asset_id: str) -> np.ndarray | None:
+    if asset_id in _embed_cache:
+        return _embed_cache[asset_id]
     img = fetch_thumbnail(asset_id)
-    return embed_image(img) if img is not None else None
+    if img is None:
+        return None
+    crops = crop_animals(img)
+    vec = embed_image(crops[0][1]) if crops else None
+    if vec is None:
+        vec = embed_image(img)
+    if vec is not None:
+        _embed_cache[asset_id] = vec
+        _save_embed_cache()
+    return vec
 
 
 # ---------------------------------------------------------------------------
@@ -139,8 +192,6 @@ def build_classifier(
         if len(negative_ids) > target:
             negative_ids = random.sample(negative_ids, target)
             log.info(f"Subsampled negatives to {target} (3x {total_refs} refs)")
-        elif len(negative_ids) < total_refs * 2:
-            log.warning(f"{len(negative_ids)} negatives for {total_refs} refs — aim for {total_refs * 2}-{target} for best accuracy")
 
         log.info(f"Embedding {len(negative_ids)} negative samples...")
         for aid in negative_ids:
@@ -179,15 +230,23 @@ def classify(vec, names, clf, scaler) -> tuple[str, float]:
 # Face assignment
 # ---------------------------------------------------------------------------
 
-def post_face(asset_id: str, person_id: str) -> str | None:
+def post_face(asset_id: str, person_id: str, bbox_norm=None, img_size=None) -> str | None:
     """Returns face_id on success, None on failure."""
+    if bbox_norm is not None and img_size is not None:
+        x1, y1, x2, y2 = bbox_norm
+        iw, ih = img_size
+        bx, by = int(x1 * iw), int(y1 * ih)
+        bw, bh = int((x2 - x1) * iw), int((y2 - y1) * ih)
+    else:
+        bx, by, bw, bh = 0, 0, imm.FACE_BOX_SIZE, imm.FACE_BOX_SIZE
+        iw, ih = imm.FACE_BOX_SIZE, imm.FACE_BOX_SIZE
     try:
         r = requests.post(
             f"{imm.IMMICH_URL}/api/faces",
             json={"assetId": asset_id, "personId": person_id,
-                  "width": imm.FACE_BOX_SIZE, "height": imm.FACE_BOX_SIZE,
-                  "imageWidth": imm.FACE_BOX_SIZE, "imageHeight": imm.FACE_BOX_SIZE,
-                  "x": 0, "y": 0},
+                  "width": bw, "height": bh,
+                  "imageWidth": iw, "imageHeight": ih,
+                  "x": bx, "y": by},
             headers={**imm.headers(), "Content-Type": "application/json"},
             timeout=30,
         )
@@ -197,7 +256,7 @@ def post_face(asset_id: str, person_id: str) -> str | None:
         fr = requests.get(f"{imm.IMMICH_URL}/api/faces", headers=imm.headers(), params={"id": asset_id}, timeout=15)
         if fr.status_code == 200:
             for face in fr.json():
-                if face.get("person", {}).get("id") == person_id:
+                if (face.get("person") or {}).get("id") == person_id:
                     return face.get("id")
         log.warning(f"post_face: created but could not retrieve face_id for asset {asset_id}")
         return None
@@ -210,16 +269,17 @@ def post_face(asset_id: str, person_id: str) -> str | None:
 # Main poll cycle
 # ---------------------------------------------------------------------------
 
-def run_poll_cycle(data_dir: str) -> None:
+def run_poll_cycle(data_dir: str, on_date=None, cancel=None, low_conf_out=None, live_counts: dict | None = None) -> None:
     log.info(f"Poll cycle | threshold={THRESHOLD} dry_run={DRY_RUN}")
     dd = Path(data_dir)
     now = datetime.now(timezone.utc).isoformat()
     data.write_poll_status(dd, {"status": "running", "started_at": now})
 
-    counts = {"added": 0, "low_confidence": 0, "unknown": 0,
-              "out_of_range": 0, "already_tagged": 0, "failed": 0, "no_thumb": 0}
+    counts = live_counts if live_counts is not None else {}
+    for k in ("added", "low_confidence", "unknown", "out_of_range", "already_tagged", "failed", "no_thumb"):
+        counts[k] = 0
     try:
-        _run_poll_cycle(dd, counts)
+        _run_poll_cycle(dd, counts, on_date, cancel, low_conf_out)
     except Exception as e:
         data.write_poll_status(dd, {"status": "error", "ran_at": datetime.now(timezone.utc).isoformat(), "error": str(e), "counts": counts})
         raise
@@ -227,7 +287,7 @@ def run_poll_cycle(data_dir: str) -> None:
         data.write_poll_status(dd, {"status": "idle", "ran_at": datetime.now(timezone.utc).isoformat(), "counts": counts})
 
 
-def _run_poll_cycle(dd: Path, counts: dict) -> None:
+def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_out=None) -> None:
     config = data.load_config(dd)
     if not config:
         log.warning("config.json empty or missing, no pets configured yet.")
@@ -275,47 +335,71 @@ def _run_poll_cycle(dd: Path, counts: dict) -> None:
         if time_str > latest_ts:
             latest_ts = time_str
 
-        vec = embed_asset(aid)
-        if vec is None:
+        if cancel and cancel.is_set():
+            log.info("Scan cancelled.")
+            return
+
+        if on_date:
+            on_date(time_str[:10])
+
+        img = fetch_thumbnail(aid)
+        if img is None:
             counts["no_thumb"] += 1
             continue
 
-        pet_name, prob = classify(vec, names, clf, scaler)
+        crops = crop_animals(img)
+        if not crops:
+            crops = [(None, img)]
+        elif len(crops) > 1:
+            log.info(f"YOLO detected {len(crops)} animals in {aid} ({time_str[:10]})")
 
-        if pet_name == "unknown":
-            counts["unknown"] += 1
-            continue
+        existing_persons = imm.fetch_asset_face_person_ids(aid)
+        tagged_in_photo: set[str] = set()
 
-        if prob < THRESHOLD:
-            counts["low_confidence"] += 1
-            continue
+        for bbox_norm, crop in crops:
+            vec = embed_image(crop)
+            if vec is None:
+                continue
 
-        cfg = config.get(pet_name, {})
-        if not asset_in_range(time_str, cfg.get("since"), cfg.get("until")):
-            counts["out_of_range"] += 1
-            continue
+            pet_name, prob = classify(vec, names, clf, scaler)
 
-        person_id = cfg.get("person_id")
-        if not person_id:
-            log.warning(f"Pet '{pet_name}' has no person_id in config.")
-            continue
+            if pet_name == "unknown":
+                counts["unknown"] += 1
+                continue
 
-        existing = imm.fetch_asset_face_person_ids(aid)
-        if person_id in existing:
-            counts["already_tagged"] += 1
-            continue
+            if prob < THRESHOLD:
+                counts["low_confidence"] += 1
+                if low_conf_out is not None:
+                    low_conf_out.append({"asset_id": aid, "pet_name": pet_name, "prob": prob, "date": time_str[:10]})
+                continue
 
-        log.info(f"{imm.IMMICH_URL}/search/photos/{aid} -> {pet_name} ({prob:.3f}) | {time_str[:10]}")
+            cfg = config.get(pet_name, {})
+            if not asset_in_range(time_str, cfg.get("since"), cfg.get("until")):
+                counts["out_of_range"] += 1
+                continue
 
-        if DRY_RUN:
-            log.info(f"  dry-run: would add {pet_name}")
-            counts["added"] += 1
-        else:
-            face_id = post_face(aid, person_id)
-            if face_id:
+            person_id = cfg.get("person_id")
+            if not person_id:
+                log.warning(f"Pet '{pet_name}' has no person_id in config.")
+                continue
+
+            if person_id in existing_persons or person_id in tagged_in_photo:
+                counts["already_tagged"] += 1
+                continue
+
+            log.info(f"{imm.IMMICH_URL}/search/photos/{aid} -> {pet_name} ({prob:.3f}) | {time_str[:10]}")
+
+            if DRY_RUN:
+                log.info(f"  dry-run: would add {pet_name}")
                 counts["added"] += 1
+                tagged_in_photo.add(person_id)
             else:
-                counts["failed"] += 1
+                face_id = post_face(aid, person_id, bbox_norm, img.size if bbox_norm is not None else None)
+                tagged_in_photo.add(person_id)
+                if face_id:
+                    counts["added"] += 1
+                else:
+                    counts["failed"] += 1
 
     log.info(f"Summary: {counts}")
 
