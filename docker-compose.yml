@@ -1,6 +1,9 @@
 services:
   immich-pet-tagger:
-    build: .
+    build:
+      context: .
+      args:
+        CUDA: "true"   # Set to "false" (or remove) if you don't have an NVIDIA GPU
     container_name: immich-pet-tagger
     restart: unless-stopped
     ports:
@@ -15,6 +18,14 @@ services:
       # CLIP model settings (optional — defaults match Immich's built-in model)
       # - CLIP_MODEL=ViT-B-16
       # - CLIP_PRETRAINED=openai
+    # NVIDIA GPU access — remove this section if you don't have an NVIDIA GPU
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     volumes:
       # This is where pet folders (luna/, pixel/) and config.json live.
       # Windows: use forward slashes, e.g.:
