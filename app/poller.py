@@ -23,7 +23,7 @@ import immich as imm
 
 log = logging.getLogger("poller")
 
-THRESHOLD = float(os.environ.get("THRESHOLD", 0.92))
+THRESHOLD = float(os.environ.get("THRESHOLD", 0.8))
 DRY_RUN = os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
 
 CLIP_MODEL_NAME = os.environ.get("CLIP_MODEL", "ViT-B-16")

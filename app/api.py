@@ -327,52 +327,6 @@ async def remove_pet_asset(name: str, asset_id: str):
     return {"ok": True}
 
 
-# ---------------------------------------------------------------------------
-# Tagged assets
-# ---------------------------------------------------------------------------
-
-@router.get("/pets/{name}/tagged")
-async def get_tagged_assets(name: str):
-    config = data.load_config(DATA_DIR)
-    if name not in config:
-        raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
-    person_id = config[name].get("person_id")
-    if not person_id:
-        return {"assets": [], "count": 0}
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.post(f"{imm.IMMICH_URL}/api/search/metadata", headers=imm.headers(), json={"personIds": [person_id], "type": "IMAGE", "size": 1000})
-    if resp.status_code != 200:
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
-    assets = resp.json().get("assets", {}).get("items", [])
-    return {"assets": [_slim_asset(a) for a in assets], "count": len(assets)}
-
-
-@router.post("/pets/{name}/reject")
-async def reject_tagged_assets(name: str, body: PetAssets):
-    config = data.load_config(DATA_DIR)
-    if name not in config:
-        raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
-    person_id = config[name].get("person_id")
-    if not person_id:
-        raise HTTPException(status_code=400, detail="Pet has no person_id")
-
-    removed = 0
-    async with httpx.AsyncClient(timeout=30) as client:
-        for asset_id in body.asset_ids:
-            faces_resp = await client.get(f"{imm.IMMICH_URL}/api/faces", headers=imm.headers(), params={"id": asset_id})
-            if faces_resp.status_code == 200:
-                for face in faces_resp.json():
-                    if (face.get("person") or {}).get("id") == person_id:
-                        await client.request("DELETE", f"{imm.IMMICH_URL}/api/faces/{face.get('id')}", headers=imm.headers(), json={"force": True})
-                        removed += 1
-                        break
-
-    existing = set(data.load_negative_ids(DATA_DIR))
-    merged = list(existing | set(body.asset_ids))
-    data.save_negative_ids(merged, DATA_DIR)
-    log.info(f"Rejected {len(body.asset_ids)} assets for '{name}': {removed} faces removed, {len(merged)-len(existing)} added to negatives")
-    return {"ok": True, "removed": removed}
-
 
 # ---------------------------------------------------------------------------
 # Ref suggestions
@@ -577,8 +531,8 @@ async def get_neg_candidates(limit: int = 60):
                     v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
                     probs = clf.predict_proba(scaler.transform(v))[0]
                     pet_prob = (1.0 - float(probs[unknown_idx])) if unknown_idx >= 0 else 0.0
-                    # Skip photos the classifier thinks are pets. Those belong in refs, not negatives.
-                    if pet_prob < THRESHOLD:
+                    # Skip photos the classifier is very confident about either way.
+                    if 0.05 <= pet_prob < THRESHOLD:
                         scored.append((pet_prob, a))
             scored.sort(key=lambda x: x[0], reverse=True)
             return scored[:limit]

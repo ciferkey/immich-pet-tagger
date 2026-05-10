@@ -144,18 +144,23 @@ By default the poller only processes photos taken after the container first star
 | `IMMICH_EXTERNAL_URL` | `http://localhost:2283` | Immich URL as seen from your browser, used for links |
 | `IMMICH_API_KEY` | required | Immich API key |
 | `POLL_INTERVAL` | `300` | Seconds between scans |
-| `THRESHOLD` | `0.92` | Min confidence (0–1) to tag a photo |
+| `THRESHOLD` | `0.8` | Min confidence (0–1) to tag a photo |
 | `DRY_RUN` | `false` | Classify but do not write to Immich |
 | `CLIP_MODEL` | `ViT-B-16` | CLIP model name (matches Immich default) |
 | `CLIP_PRETRAINED` | `openai` | CLIP pretrained weights |
 
 ---
 
+## GPU support
+
+The default `docker-compose.yml` is configured for NVIDIA GPUs. If you don't have one, remove the `deploy` section and change `CUDA: "true"` to `"false"` in the build args, then rebuild.
+
+If you do have an NVIDIA GPU, make sure the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) is installed and Docker is using the WSL2 backend (Windows) or the native toolkit (Linux).
+
 ## Limitations
 
 - **YOLO fallback**: when no animals are detected by YOLO, the full image is classified as a whole and only one pet can be tagged per photo
 - **Polling only**: photos are processed within 5 minutes of upload, not instantly
-- **CPU by default**: CLIP runs on CPU. CUDA is used automatically if available in the container
 
 ## Troubleshooting
 

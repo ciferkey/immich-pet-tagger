@@ -36,7 +36,6 @@
             <span id="selCount" style="font-size:12px; color:var(--text3);"></span>
             <button class="btn btn-primary" id="assignBtn" onclick="assignSelected()" style="display:none">Add to pet →</button>
             <button class="btn" id="skipBtn" onclick="skipSelected()" style="display:none">Skip</button>
-            <button class="btn btn-danger" id="rejectBtn" onclick="rejectSelected()" style="display:none">Remove tag + mark "not my pets"</button>
             <div id="scanPetBtns" style="display:none; gap:4px; flex-wrap:wrap;"></div>
             <button class="btn btn-danger" id="scanNegBtn" onclick="scanNegSelected()" style="display:none">Not my pets</button>
           </div>
@@ -60,7 +59,6 @@
           <span style="font-size:12px; font-weight:500;" id="refsTitle">No pet selected</span>
           <div style="display:flex; gap:6px; align-items:center;">
             <button class="btn btn-danger" id="clearRefsBtn" onclick="clearAllRefs()" style="display:none; font-size:11px; padding:3px 8px;">Clear all</button>
-            <button class="btn" id="taggedBtn" onclick="viewTagged()" style="display:none; font-size:11px; padding:3px 8px;">Tagged</button>
           </div>
         </div>
         <div class="refs-grid" id="refsGrid">
