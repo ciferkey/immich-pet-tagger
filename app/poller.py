@@ -9,8 +9,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-import requests
-
 import classifier as clf_mod
 import data
 import embedder as emb
@@ -45,45 +43,6 @@ def asset_in_range(time_str: str, since: str | None, until: str | None) -> bool:
     if until and d > date.fromisoformat(until):
         return False
     return True
-
-
-# ---------------------------------------------------------------------------
-# Face assignment
-# ---------------------------------------------------------------------------
-
-def post_face(asset_id: str, person_id: str, bbox_norm=None, img_size=None) -> str | None:
-    """Returns face_id on success, None on failure."""
-    if bbox_norm is not None and img_size is not None:
-        x1, y1, x2, y2 = bbox_norm
-        iw, ih = img_size
-        bx, by = int(x1 * iw), int(y1 * ih)
-        bw, bh = int((x2 - x1) * iw), int((y2 - y1) * ih)
-    else:
-        bx, by, bw, bh = 0, 0, imm.FACE_BOX_SIZE, imm.FACE_BOX_SIZE
-        iw, ih = imm.FACE_BOX_SIZE, imm.FACE_BOX_SIZE
-    try:
-        r = requests.post(
-            f"{imm.IMMICH_URL}/api/faces",
-            json={"assetId": asset_id, "personId": person_id,
-                  "width": bw, "height": bh,
-                  "imageWidth": iw, "imageHeight": ih,
-                  "x": bx, "y": by},
-            headers={**imm.headers(), "Content-Type": "application/json"},
-            timeout=30,
-        )
-        if r.status_code not in (200, 201):
-            log.warning(f"post_face {asset_id} -> {r.status_code}: {r.text[:200]}")
-            return None
-        fr = requests.get(f"{imm.IMMICH_URL}/api/faces", headers=imm.headers(), params={"id": asset_id}, timeout=15)
-        if fr.status_code == 200:
-            for face in fr.json():
-                if (face.get("person") or {}).get("id") == person_id:
-                    return face.get("id")
-        log.warning(f"post_face: created but could not retrieve face_id for asset {asset_id}")
-        return None
-    except Exception as e:
-        log.error(f"post_face error: {e}")
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +177,7 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
 
             log.info(f"{imm.IMMICH_URL}/search/photos/{aid} -> {pet_name} ({prob:.3f}) | {time_str[:10]}")
 
-            face_id = post_face(aid, person_id, bbox_norm, img.size if bbox_norm is not None else None)
+            face_id = imm.post_face_sync(aid, person_id, bbox_norm, img.size if bbox_norm is not None else None)
             tagged_in_photo.add(person_id)
             with _count_lock:
                 if face_id:
