@@ -18,7 +18,6 @@ services:
       # Override only if Immich feels slow during scans: - SCAN_WORKERS=32
       - GPU_WORKERS=2
       - THRESHOLD=0.8                            # Min confidence to assign a face
-      # - DRY_RUN=true                           # Uncomment to disable writing to Immich
       # CLIP model settings (optional — defaults match Immich's built-in model)
       # - CLIP_MODEL=ViT-B-16
       # - CLIP_PRETRAINED=openai

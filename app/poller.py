@@ -19,7 +19,6 @@ import immich as imm
 log = logging.getLogger("poller")
 
 THRESHOLD = float(os.environ.get("THRESHOLD", 0.8))
-DRY_RUN = os.environ.get("DRY_RUN", "").lower() in ("1", "true", "yes")
 
 _count_lock = threading.Lock()
 
@@ -92,7 +91,7 @@ def post_face(asset_id: str, person_id: str, bbox_norm=None, img_size=None) -> s
 # ---------------------------------------------------------------------------
 
 def run_poll_cycle(data_dir: str, on_date=None, cancel=None, low_conf_out=None, live_counts: dict | None = None) -> None:
-    log.info(f"Poll cycle | threshold={THRESHOLD} dry_run={DRY_RUN}")
+    log.info(f"Poll cycle | threshold={THRESHOLD}")
     dd = Path(data_dir)
     now = datetime.now(timezone.utc).isoformat()
     data.write_poll_status(dd, {"status": "running", "started_at": now})
@@ -219,19 +218,13 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
 
             log.info(f"{imm.IMMICH_URL}/search/photos/{aid} -> {pet_name} ({prob:.3f}) | {time_str[:10]}")
 
-            if DRY_RUN:
-                log.info(f"  dry-run: would add {pet_name}")
-                with _count_lock:
+            face_id = post_face(aid, person_id, bbox_norm, img.size if bbox_norm is not None else None)
+            tagged_in_photo.add(person_id)
+            with _count_lock:
+                if face_id:
                     counts["added"] += 1
-                tagged_in_photo.add(person_id)
-            else:
-                face_id = post_face(aid, person_id, bbox_norm, img.size if bbox_norm is not None else None)
-                tagged_in_photo.add(person_id)
-                with _count_lock:
-                    if face_id:
-                        counts["added"] += 1
-                    else:
-                        counts["failed"] += 1
+                else:
+                    counts["failed"] += 1
 
     import detector as _det
     emb.reset_batch_stats()
@@ -263,6 +256,5 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
         f"counts={counts}"
     )
 
-    if not DRY_RUN:
-        data.save_last_timestamp(latest_ts, dd)
-        log.info(f"Saved timestamp: {latest_ts}")
+    data.save_last_timestamp(latest_ts, dd)
+    log.info(f"Saved timestamp: {latest_ts}")

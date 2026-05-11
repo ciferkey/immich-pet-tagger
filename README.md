@@ -147,7 +147,6 @@ By default the poller only processes photos taken after the container first star
 | `SCAN_WORKERS` | `GPU_WORKERS × 32` | Concurrent thumbnail fetches. Auto-derived to keep GPU batches full. Override only if Immich feels slow during scans. |
 | `GPU_WORKERS` | `2` | Parallel YOLO and CLIP inference threads. `2` is optimal for most GPUs; more threads shrink batch sizes and hurt throughput. |
 | `THRESHOLD` | `0.8` | Min confidence (0–1) to tag a photo |
-| `DRY_RUN` | `false` | Classify but do not write to Immich |
 | `CLIP_MODEL` | `ViT-B-16` | CLIP model name (matches Immich default) |
 | `CLIP_PRETRAINED` | `openai` | CLIP pretrained weights |
 
