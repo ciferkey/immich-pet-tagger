@@ -96,7 +96,7 @@ async function loadRefs(name) {
 
 function renderRefs(assets) {
   const grid = document.getElementById('refsGrid');
-  if (!assets.length) { grid.innerHTML = '<div class="empty" style="grid-column:1/-1;height:160px;"><div class="empty-sub">No references yet.<br>Search and add photos.</div></div>'; return; }
+  if (!assets.length) { grid.innerHTML = '<div class="empty" style="grid-column:1/-1;height:160px;"><div class="empty-sub">No references yet.<br>Click "Find references" to add some.</div></div>'; return; }
   grid.innerHTML = assets.map(a => `
     <div class="ref-thumb">
       <a href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" title="Open in Immich">
@@ -260,9 +260,8 @@ function updateSelUI() {
   document.getElementById('selCount').textContent = n ? `${n} selected` : '';
   document.getElementById('assignBtn').style.display = (n && activePet && !negCandidateMode && !scanLowConfMode) ? '' : 'none';
   document.getElementById('skipBtn').style.display = n ? '' : 'none';
-  document.getElementById('addNegBtn').style.display = (n && !scanLowConfMode) ? '' : 'none';
+  document.getElementById('addNegBtn').style.display = n ? '' : 'none';
   document.getElementById('scanPetBtns').style.display = (n && scanLowConfMode) ? 'flex' : 'none';
-  document.getElementById('scanNegBtn').style.display = (n && scanLowConfMode) ? '' : 'none';
 }
 
 async function skipSelected() {
@@ -389,7 +388,7 @@ async function viewNegCandidates() {
 
 async function clearAllRefs() {
   if (!activePet) return;
-  if (!confirm(`Remove all reference photos for ${activePet.name} from this tool? This will not affect Immich.`)) return;
+  if (!confirm(`Remove all reference photos for ${activePet.name} from Pet Tagger? This will not affect Immich.`)) return;
   try {
     await api(`/api/pets/${encodeURIComponent(activePet.name)}/refs`, { method: 'DELETE' });
     refsIds = [];
@@ -400,7 +399,7 @@ async function clearAllRefs() {
 }
 
 async function clearAllNegatives() {
-  if (!confirm(`Remove all "not my pets" photos from this tool? This will not affect Immich.`)) return;
+  if (!confirm(`Remove all "not my pets" photos from Pet Tagger? This will not affect Immich.`)) return;
   try {
     await api('/api/negatives/all', { method: 'DELETE' });
     negIds = []; lastNegTopScore = null;
@@ -503,7 +502,7 @@ async function viewScanLowConf() {
   grid.innerHTML = '<div class="loading" style="grid-column:1/-1">Loading low confidence results…</div>';
   label.textContent = 'Loading…';
   const scanPetBtns = document.getElementById('scanPetBtns');
-  scanPetBtns.innerHTML = pets.map(p => `<button class="btn btn-primary" style="font-size:11px; padding:4px 10px;">${p.name}</button>`).join('');
+  scanPetBtns.innerHTML = pets.map(p => `<button class="btn btn-primary">${p.name}</button>`).join('');
   [...scanPetBtns.children].forEach((btn, i) => { btn.onclick = () => scanAssignSelected(pets[i].name); });
   updateSelUI();
   try {
@@ -543,18 +542,6 @@ async function scanAssignSelected(petName) {
     selectedIds.clear(); updateSelUI();
     await refreshState();
     toast(`Added ${ids.length} to ${petName}`, 'success');
-  } catch(e) { toast(e.message, 'error'); }
-}
-
-async function scanNegSelected() {
-  if (!selectedIds.size) return;
-  const ids = [...selectedIds];
-  try {
-    await api('/api/negatives', { method: 'POST', body: { asset_ids: ids } });
-    ids.forEach(id => { const el = document.getElementById('th-' + id); if (el) { el.classList.remove('selected'); el.classList.add('is-neg'); } });
-    selectedIds.clear(); updateSelUI();
-    await loadNegatives();
-    toast(`Added ${ids.length} to "not my pets"`, 'success');
   } catch(e) { toast(e.message, 'error'); }
 }
 
@@ -660,7 +647,7 @@ function openDeletePet(name) {
   document.getElementById('deleteWarningText').textContent =
     `"Delete from Immich too" removes the person and untags all tagged photos in Immich permanently. Your photos are not deleted.`;
   document.getElementById('deleteLocalOnlyText').textContent =
-    `"Remove from tool only" keeps ${name} in Immich with all tagged photos intact, but stops auto-tagging new photos. Your photos are not deleted. You can re-import it later.`;
+    `"Remove from Pet Tagger only" keeps ${name} in Immich with all tagged photos intact, but stops auto-tagging new photos. Your photos are not deleted. You can re-import it later.`;
   document.getElementById('deletePetModal').classList.add('open');
 }
 function closeDeleteModal() { document.getElementById('deletePetModal').classList.remove('open'); _petToDelete = null; }
@@ -678,7 +665,7 @@ async function confirmDeletePet(localOnly) {
       document.getElementById('refsGrid').innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-sub">Select a pet</div></div>';
     }
     await refreshState();
-    toast(localOnly ? `Removed ${name} from tool` : `Deleted ${name}. Immich will clean up faces in the background.`, 'success');
+    toast(localOnly ? `Removed ${name} from Pet Tagger` : `Deleted ${name}. Immich will clean up faces in the background.`, 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 

@@ -14,8 +14,8 @@
       <div class="logo-sub">for Immich</div>
     </div>
     <div class="pets-list" id="petsList"></div>
-    <button class="add-pet-btn" onclick="openAddPet()">+ Add pet</button>
-    <button class="add-pet-btn" onclick="openImportPet()">↓ Import from Immich</button>
+    <button class="add-pet-btn add-pet-btn-primary" onclick="openAddPet()">+ Add pet</button>
+    <button class="add-pet-btn" style="margin-bottom:8px;" onclick="openImportPet()">↓ Import from Immich</button>
     <div class="sidebar-bottom">
       <div class="scan-panel">
         <label>Scan from</label>
@@ -36,8 +36,8 @@
             <span id="selCount" style="font-size:12px; color:var(--text3);"></span>
             <button class="btn btn-primary" id="assignBtn" onclick="assignSelected()" style="display:none">Add to pet →</button>
             <button class="btn" id="skipBtn" onclick="skipSelected()" style="display:none">Skip</button>
+            <button class="btn btn-danger" id="addNegBtn" onclick="addSelectedAsNegatives()" style="display:none">Not my pets</button>
             <div id="scanPetBtns" style="display:none; gap:4px; flex-wrap:wrap;"></div>
-            <button class="btn btn-danger" id="scanNegBtn" onclick="scanNegSelected()" style="display:none">Not my pets</button>
           </div>
         </div>
         <div class="photo-grid" id="photoGrid">
@@ -73,7 +73,6 @@
             </div>
           </div>
           <div class="neg-grid" id="negGrid"></div>
-          <button class="btn" style="width:100%; font-size:11px; margin-top:8px;" id="addNegBtn" onclick="addSelectedAsNegatives()" style="display:none">Mark selected as "not my pets"</button>
         </div>
       </div>
     </div>
@@ -145,10 +144,10 @@
     <h2>Delete pet</h2>
     <div class="modal-warning" id="deleteWarningText"></div>
     <div style="font-size:12px; color:var(--text2); margin-bottom:8px;" id="deleteLocalOnlyText"></div>
-    <div style="font-size:11px; color:var(--text3); margin-bottom:20px;">Both actions cannot be undone.</div>
+    <div style="font-size:11px; color:var(--text3); margin-bottom:20px;">Neither action can be undone.</div>
     <div class="modal-actions">
       <button class="btn" onclick="closeDeleteModal()">Cancel</button>
-      <button class="btn btn-danger" style="border-style:dashed;" onclick="confirmDeletePet(true)">Remove from tool only</button>
+      <button class="btn btn-danger" style="border-style:dashed;" onclick="confirmDeletePet(true)">Remove from Pet Tagger only</button>
       <button class="btn btn-danger" onclick="confirmDeletePet(false)">Delete from Immich too</button>
     </div>
   </div>
