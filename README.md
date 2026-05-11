@@ -4,6 +4,8 @@ Automatic pet tagging for Immich. Identifies your pets in new photos and tags th
 
 Uses CLIP embeddings and a few reference photos you provide. No cloud services, no training required, runs entirely on your own hardware as a Docker sidecar alongside Immich.
 
+![Pet Tagger UI showing Chewbacca's possible missed photos and a past scan result](screenshot.png)
+
 ## How it works
 
 1. You enroll your pets via a web UI: provide a few reference photos and a short description
@@ -20,7 +22,6 @@ Uses CLIP embeddings and a few reference photos you provide. No cloud services, 
 - **Tagged photos panel**: review all photos currently tagged for a pet in Immich; remove tags or mark as "not my pets" in bulk.
 - **Date ranges**: restrict a pet to photos taken within a specific period (useful for pets that have passed away or were adopted later).
 - **Scan controls**: set the scan start date and trigger a scan from the sidebar; the last scan stats are shown live.
-- **Dry run mode**: classify photos without writing anything to Immich, for testing.
 
 ## Requirements
 
