@@ -44,7 +44,7 @@ function renderSidebar() {
   const el = document.getElementById('petsList');
   if (!pets.length) {
     el.innerHTML = '<div style="padding:16px;font-size:12px;color:var(--text3);text-align:center;line-height:1.6;">No pets yet.<br>Add one to get started.</div>';
-    document.getElementById('photoGrid').innerHTML = '<div class="empty" style="grid-column:1/-1;height:300px;"><div class="empty-icon">🐾</div><div class="empty-title">No pets yet</div><div class="empty-sub">Add a pet using the sidebar to get started</div></div>';
+    showGuide();
     document.getElementById('refsTitle').textContent = 'No pet selected';
     document.getElementById('findRefsBtn').style.display = 'none';
     document.getElementById('clearRefsBtn').style.display = 'none';
@@ -61,6 +61,21 @@ function renderSidebar() {
       <button class="pet-edit" onclick="event.stopPropagation(); openEditPet('${p.name}')" title="Edit">✎</button>
       <button class="pet-delete" onclick="event.stopPropagation(); openDeletePet('${p.name}')" title="Delete">✕</button>
     </div>`).join('');
+}
+
+function showGuide() {
+  document.getElementById('resultsLabel').textContent = '';
+  document.getElementById('photoGrid').innerHTML = `<div class="guide" style="grid-column:1/-1">
+    <div class="guide-steps">
+      <div class="guide-step"><div class="guide-step-num">1</div><div class="guide-step-body"><div class="guide-step-title">Add your pet</div><div class="guide-step-desc">Click <strong>↓ Import from Immich</strong> if Immich already recognizes your pet as a person. Otherwise click <strong>+ Add pet</strong> to start from scratch.</div></div></div>
+      <div class="guide-step"><div class="guide-step-num">2</div><div class="guide-step-body"><div class="guide-step-title">Find reference photos</div><div class="guide-step-desc">Select your pet and click <strong>Find references</strong>. Browse the results and add 10–20 clear, varied photos. Avoid blurry shots and frames with multiple animals.</div></div></div>
+      <div class="guide-step"><div class="guide-step-num">3</div><div class="guide-step-body"><div class="guide-step-title">Add "not my pets" samples</div><div class="guide-step-desc">In the <strong>Not my pets</strong> panel, click <strong>Find candidates</strong>. Mark photos that look similar to your pet but are not. Aim for 2–3 times as many negatives as references.</div></div></div>
+      <div class="guide-step"><div class="guide-step-num">4</div><div class="guide-step-body"><div class="guide-step-title">Run a test scan</div><div class="guide-step-desc">Set the <strong>Scan from</strong> date 1–2 weeks back and click <strong>Scan</strong>. Review low confidence results: add correct ones as refs, mark wrong ones as not my pets.</div></div></div>
+      <div class="guide-step"><div class="guide-step-num">5</div><div class="guide-step-body"><div class="guide-step-title">Iterate</div><div class="guide-step-desc">Repeat steps 2–4 a couple of times. Results typically stabilize after 2–3 rounds.</div></div></div>
+      <div class="guide-step"><div class="guide-step-num">6</div><div class="guide-step-body"><div class="guide-step-title">Run the full backfill</div><div class="guide-step-desc">Once happy with accuracy, set the scan date to when you got your pet and run the full scan. After that, new photos are tagged automatically every 5 minutes.</div></div></div>
+    </div>
+  </div>`;
+  selectedIds.clear(); lastClickedId = null; updateSelUI();
 }
 
 function clearSearch() {
