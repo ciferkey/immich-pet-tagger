@@ -81,7 +81,7 @@ docker compose up -d
 docker compose logs -f   # watch startup logs
 ```
 
-On first start, the CLIP model (~350 MB) is downloaded and cached inside the container. Subsequent starts are fast.
+On first build, the YOLO model (~6 MB) is downloaded and baked into the image. On first start, the CLIP model (~350 MB) is downloaded and cached inside the container. Subsequent starts are fast.
 
 ### 5. Open the UI
 

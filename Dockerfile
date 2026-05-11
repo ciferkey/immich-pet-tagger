@@ -32,6 +32,9 @@ RUN pip install --no-cache-dir -r requirements.txt \
 
 COPY app/ .
 
+# Pre-download YOLO model weights at build time so they are baked into the image.
+RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+
 # /data is the mounted volume: pets/luna/, pets/config.json, state files, logs
 VOLUME ["/data"]
 
