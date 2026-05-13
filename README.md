@@ -24,8 +24,8 @@ Uses CLIP embeddings and a few reference photos you provide. No cloud services, 
 
 ## Requirements
 
-- Immich running via Docker Compose (tested with v2.7.5)
-- Docker on the same host
+- Immich running and reachable over HTTP (tested with v2.7.5)
+- Docker (on the same host or any machine that can reach Immich on the network)
 - An Immich API key with the following permissions:
 
   | Permission | Reason |
@@ -50,28 +50,20 @@ git clone https://github.com/tedornitier/immich-pet-tagger
 cd immich-pet-tagger
 ```
 
-### 2. Find your Immich Docker network
-
-```bash
-docker network ls
-```
-
-Look for a network with "immich" in the name (e.g. `immich_default`).
-
-### 3. Configure docker-compose.yml
+### 2. Configure docker-compose.yml
 
 Edit the following values:
 
 ```yaml
 environment:
-  - IMMICH_URL=http://immich-server:2283     # how this container reaches Immich (container-to-container)
+  - IMMICH_URL=http://immich-server:2283     # how this container reaches Immich
   - IMMICH_API_KEY=your_api_key_here         # generate one in Immich: Account Settings → API Keys
   - IMMICH_EXTERNAL_URL=http://localhost:2283 # how your browser reaches Immich (for photo links)
-
-networks:
-  immich_default:          # match your actual network name from step 2
-    external: true
 ```
+
+**Same Docker host as Immich:** use the container name as the hostname (e.g. `http://immich-server:2283`) and keep the shared network section at the bottom of the file. Find your Immich network name with `docker network ls`.
+
+**Immich on a separate machine:** use its IP or hostname instead (e.g. `http://192.168.1.100:2283`) and change `external: true` to `external: false` at the bottom of `docker-compose.yml`.
 
 ### 4. Start the container
 
