@@ -427,7 +427,8 @@ async def get_borderline(name: str, limit: int = 40):
     ref_ids_per_pet = {n: all_ref_ids[n] for n in pet_names}
     negative_ids = data.load_negative_ids(DATA_DIR)
 
-    LOW, HIGH = 0.3, 0.85
+    from poller import THRESHOLD
+    LOW, HIGH = 0.3, THRESHOLD
 
     state.borderline_request_id += 1
     my_id = state.borderline_request_id
@@ -604,12 +605,13 @@ async def import_pet(body: PetImport):
                     continue
                 faces_resp = await client.get(f"{imm.IMMICH_URL}/api/faces", headers=imm.headers(), params={"id": aid})
                 if faces_resp.status_code == 200:
-                    named = {f["person"]["id"] for f in faces_resp.json() if f and (f.get("person") or {}).get("id")}
+                    faces = faces_resp.json()
+                    named = {f["person"]["id"]: f["id"] for f in faces if f and (f.get("person") or {}).get("id")}
                     if len(named) == 1:
-                        candidates.append(aid)
+                        candidates.append((aid, named.get(body.person_id)))
 
     n = min(len(candidates), 20)
-    assets = [{"asset_id": candidates[int(i * len(candidates) / n)], "face_id": None} for i in range(n)]
+    assets = [{"asset_id": candidates[int(i * len(candidates) / n)][0], "face_id": candidates[int(i * len(candidates) / n)][1]} for i in range(n)]
 
     (PETS_DIR / body.person_id).mkdir(parents=True, exist_ok=True)
     data.save_pet_refs(body.person_id, assets, DATA_DIR)

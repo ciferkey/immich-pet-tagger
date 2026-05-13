@@ -1,5 +1,7 @@
 services:
   immich-pet-tagger:
+    image: ghcr.io/tedornitier/immich-pet-tagger:latest  # AMD: use :rocm, CPU-only: use :cpu
+    # build: section below is only needed if you want to build from source instead of pulling the image
     build:
       context: .
       args:
@@ -9,9 +11,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - IMMICH_URL=http://immich-server:2283      # ← name of your Immich container
-      - IMMICH_API_KEY=your_api_key_here          # ← required
-      - IMMICH_EXTERNAL_URL=http://localhost:2283 # ← how your browser reaches Immich
+      - IMMICH_URL=http://immich-server:2283      # name of your Immich container
+      - IMMICH_API_KEY=your_api_key_here          # generate in Immich: Account Settings, API Keys
+      - IMMICH_EXTERNAL_URL=http://localhost:2283 # how your browser reaches Immich
       - POLL_INTERVAL=300
       - GPU_WORKERS=2
       - THRESHOLD=0.8
@@ -26,10 +28,9 @@ services:
               capabilities: [gpu]
     volumes:
       - ./data:/data
-      - ./app:/app
     networks:
-      - immich_default  # ← must match the network name below
+      - immich_default  # must match the network name below
 
 networks:
-  immich_default:       # ← set to your Immich Docker network name (docker network ls)
+  immich_default:       # set to your Immich Docker network name (docker network ls)
     external: true      # this network is created by Immich's compose, not this one

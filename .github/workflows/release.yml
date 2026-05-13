@@ -11,11 +11,12 @@ on:
       - 'v*'
 
 jobs:
-  release:
+  prepare:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: write
+    outputs:
+      tag: ${{ steps.ref.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,15 +40,6 @@ jobs:
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Free disk space
-        # CUDA wheel install (~5 GiB resident) duplicated into the
-        # runtime image overflows the runner's default 14 GiB free.
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost
-          sudo apt-get clean
-          df -h /
-
       - name: Resolve image tag
         id: ref
         run: |
@@ -58,6 +50,45 @@ jobs:
           fi
           echo "tag=${FULL}" >> "$GITHUB_OUTPUT"
 
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - variant: cuda
+            build_arg: CUDA=true
+            stable_tag: latest
+            free_disk: true
+          - variant: rocm
+            build_arg: ROCM=true
+            stable_tag: rocm
+            free_disk: false
+          - variant: cpu
+            build_arg: ""
+            stable_tag: cpu
+            free_disk: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: matrix.free_disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo apt-get clean
+          df -h /
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          IMAGE="ghcr.io/${{ github.repository_owner }}/immich-pet-tagger"
+          VERSION="${{ needs.prepare.outputs.tag }}"
+          SUFFIX="${{ matrix.variant == 'cuda' && '' || format('-{0}', matrix.variant) }}"
+          echo "tags=${IMAGE}:${VERSION}${SUFFIX},${IMAGE}:${{ matrix.stable_tag }}" >> "$GITHUB_OUTPUT"
+
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
@@ -65,25 +96,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/immich-pet-tagger
-          tags: |
-            type=raw,value=${{ steps.ref.outputs.tag }}
-            type=raw,value=latest
-
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build and push (CUDA)
+      - name: Build and push (${{ matrix.variant }})
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
-          build-args: |
-            CUDA=true
+          build-args: ${{ matrix.build_arg }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}

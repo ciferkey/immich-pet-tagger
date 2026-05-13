@@ -16,17 +16,16 @@ Uses CLIP embeddings and a few reference photos you provide. No cloud services, 
 ## Features
 
 - **Import from Immich**: if Immich already recognizes your pet as a person, import them in one click. The tool picks up to 20 evenly distributed reference photos automatically.
-- **Find similar photos**: two-stage search — Immich's CLIP text search narrows the field, then the local classifier ranks by pet probability. Instant when the pet has no refs yet.
-- **Find candidates for "not my pets"**: searches across all pets at once, scores results by pet-likeness, and surfaces the top 60 most confusable photos for bulk review.
+- **Find similar photos**: uses a two-stage search to surface candidates. Your reference photos are used as visual queries against Immich's smart search, and the local classifier re-ranks the results by pet probability. Falls back to text search using your description when no refs exist yet.
+- **Find candidates for "not my pets"**: samples random photos from your library, scores them with the classifier, and surfaces the top 60 most likely to confuse it for bulk review.
 - **Negative samples**: mark photos that look like your pet but aren't, to sharpen the classifier's ability to reject false positives.
-- **Tagged photos panel**: review all photos currently tagged for a pet in Immich; remove tags or mark as "not my pets" in bulk.
 - **Date ranges**: restrict a pet to photos taken within a specific period (useful for pets that have passed away or were adopted later).
 - **Scan controls**: set the scan start date and trigger a scan from the sidebar; the last scan stats are shown live.
 
 ## Requirements
 
-- Immich running via Docker Compose (tested with v2.7.5)
-- Docker on the same host
+- Immich running and reachable over HTTP (tested with v2.7.5)
+- Docker (on the same host or any machine that can reach Immich on the network)
 - An Immich API key with the following permissions:
 
   | Permission | Reason |
@@ -51,35 +50,31 @@ git clone https://github.com/tedornitier/immich-pet-tagger
 cd immich-pet-tagger
 ```
 
-### 2. Find your Immich Docker network
-
-```bash
-docker network ls
-```
-
-Look for a network with "immich" in the name (e.g. `immich_default`).
-
-### 3. Configure docker-compose.yml
+### 2. Configure docker-compose.yml
 
 Edit the following values:
 
 ```yaml
 environment:
-  - IMMICH_URL=http://immich-server:2283     # how this container reaches Immich (container-to-container)
+  - IMMICH_URL=http://immich-server:2283     # how this container reaches Immich
   - IMMICH_API_KEY=your_api_key_here         # generate one in Immich: Account Settings → API Keys
   - IMMICH_EXTERNAL_URL=http://localhost:2283 # how your browser reaches Immich (for photo links)
-
-networks:
-  immich_default:          # match your actual network name from step 2
-    external: true
 ```
 
+**Same Docker host as Immich:** use the container name as the hostname (e.g. `http://immich-server:2283`) and keep the shared network section at the bottom of the file. Find your Immich network name with `docker network ls`.
+
+**Immich on a separate machine:** use its IP or hostname instead (e.g. `http://192.168.1.100:2283`) and change `external: true` to `external: false` at the bottom of `docker-compose.yml`.
+
 ### 4. Start the container
+
+**NVIDIA GPU (default):** the pre-built image is pulled automatically from GHCR.
 
 ```bash
 docker compose up -d
 docker compose logs -f   # watch startup logs
 ```
+
+**AMD (ROCm) or CPU-only:** change the image tag first (see [GPU support](#gpu-support)), then run the same commands above.
 
 On first start, the YOLO model (~6 MB) and CLIP model (~350 MB) are downloaded and cached. Subsequent starts are fast.
 
@@ -87,22 +82,33 @@ On first start, the YOLO model (~6 MB) and CLIP model (~350 MB) are downloaded a
 
 Go to **http://localhost:8000** in your browser.
 
+## Updating
+
+To update to a new version, pull the latest image and restart:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+This works for all variants since pre-built images are published for NVIDIA, AMD, and CPU-only.
+
 ---
 
 ## Getting started
 
-Getting good results takes a few iterations. The typical flow is: add a pet, build up references, add some negatives, run a short test scan, review the results, refine, and repeat until you're satisfied — then run the full backfill.
+Getting good results takes a few iterations. Start by adding a pet, building up references, and adding some negatives. Run a short test scan, review the results, refine, and repeat until you're satisfied. Then run the full backfill.
 
 ### Step 1: Add your pet
 
-**Import from Immich** — if Immich already recognizes your pet as a person from its own face detection:
+**Import from Immich**: use this if Immich already recognizes your pet as a person from its own face detection.
 
 1. Click **↓ Import from Immich** in the sidebar
 2. Find and click your pet in the grid
 3. Enter a short description (e.g. `orange tabby cat`) and an optional date range
-4. Click **Import** — up to 20 reference photos are imported automatically
+4. Click **Import**. Up to 20 reference photos are imported automatically.
 
-**Add manually** — if Immich doesn't know your pet yet:
+**Add manually**: use this if Immich doesn't know your pet yet.
 
 1. Click **+ Add pet**, fill in the name, a short description (e.g. `black labrador dog`), and an optional date range
 2. Click **Create**
@@ -114,31 +120,31 @@ The description is used by Immich's CLIP model to find the first batch of candid
 References are what the classifier learns from. Quality matters more than quantity.
 
 1. Select your pet in the sidebar and click **Find references**
-2. Browse the results — they are ranked by visual similarity to your description or existing refs
+2. Browse the results. They are ranked by visual similarity to your existing refs, or to your description if no refs exist yet.
 3. Select clear, varied photos and click **Add to pet →**
 4. Aim for 10–20 references to start; you can always add more
 
 What to avoid:
-- **Multiple animals in frame** — YOLO crops to one animal and you can't control which, so the embedding may be for the wrong pet
-- **Blurry or dark shots** — CLIP embeddings are less reliable when the subject isn't clearly visible
-- **Uncertain ones** — if you're not sure it's your pet, skip it; noise in refs hurts more than a smaller count
+- **Multiple animals in frame**: only one animal is cropped and classified per detection, so the photo might represent the wrong pet
+- **Blurry or dark shots**: poor image quality produces unreliable embeddings
+- **Uncertain ones**: if you're not sure it's your pet, skip it. A few noisy refs hurt more than having fewer refs overall.
 
 ### Step 3: Add "not my pets" samples
 
 These help the classifier reject photos that look similar to your pet but aren't, reducing false positives.
 
 1. In the **Not my pets** panel (bottom right of the screen), click **Find candidates**
-2. The tool scans your library and surfaces the most confusable photos — animals that score high but aren't yours
+2. The tool samples random photos from your library, scores them with the classifier, and surfaces the ones most likely to confuse it
 3. Select photos that are not your pet and click **Not my pets**
 4. Aim for roughly 2–3× as many negatives as total references across all pets
 
 ### Step 4: Run a test scan
 
-Start with a recent date to keep scans short and fast during iteration — the fewer photos, the quicker you can review and refine.
+Start with a recent date so the scan covers fewer photos, making it quicker to review and refine before committing to a full backfill.
 
 1. In the **Scan from** panel at the bottom of the sidebar, set a date 1–2 weeks back
 2. Click **Scan** and wait for the results
-3. If **Review N low confidence** appears in the results, click it — these are borderline cases the classifier wasn't sure about
+3. If **Review N low confidence** appears in the results, click it to see photos the classifier identified as a match but wasn't fully confident about.
 4. Go through them: add correctly identified ones as references, mark wrong ones as **Not my pets**, and skip the rest
 
 ### Step 5: Iterate
@@ -149,7 +155,7 @@ Repeat steps 2–4 a couple of times. Each round of added references and negativ
 
 Once you're happy with the accuracy on the test window:
 
-1. Set the scan date to the earliest date you want to tag — for example, the date you got your pet
+1. Set the scan date to the earliest date you want to tag. A good starting point is the date you got your pet.
 2. Click **Scan** to process all photos in that range
 
 After that, the background poller runs every 5 minutes and tags new photos automatically. Your pets appear in Immich's **People** section.
@@ -172,23 +178,24 @@ After that, the background poller runs every 5 minutes and tags new photos autom
 
 ## GPU support
 
-All three configurations run the same code. GPU is faster but not required.
+A GPU makes scans significantly faster but is not required. Pre-built images are published for all three variants.
 
-**NVIDIA (default)**
-Requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html). Keep the default `docker-compose.yml` as-is.
+**NVIDIA (default):** no changes needed, uses the `latest` image.
 
-**AMD (ROCm)**
-Requires ROCm drivers on the host. In `docker-compose.yml`:
-- Change `CUDA: "true"` to `ROCM: "true"` under `build.args`
-- Change `driver: nvidia` to `driver: amdgpu` under `deploy`
-- Rebuild: `docker compose build`
+**AMD GPU:** in `docker-compose.yml`, set the image tag to `:rocm` and change the deploy driver to `amdgpu`:
+```yaml
+image: ghcr.io/tedornitier/immich-pet-tagger:rocm
+```
+```yaml
+driver: amdgpu
+```
 
-**CPU-only (no GPU)**
-Works out of the box, just slower (~10x). In `docker-compose.yml`:
-- Remove or comment out the `CUDA: "true"` build arg
-- Remove the entire `deploy` section
-- `SCAN_WORKERS` auto-adjusts to 8 (no need to set it manually)
-- Rebuild: `docker compose build`
+**No GPU (CPU-only):** in `docker-compose.yml`, set the image tag to `:cpu` and remove the entire `deploy:` section:
+```yaml
+image: ghcr.io/tedornitier/immich-pet-tagger:cpu
+```
+
+CPU-only works fine for small libraries or infrequent scans. Expect roughly 10x slower processing.
 
 ## Limitations
 

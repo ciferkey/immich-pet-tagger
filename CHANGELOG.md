@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.1.0
+
+### Fixes
+- **Borderline threshold**: the low-confidence review threshold was hardcoded to 0.85 instead of tracking the configured `THRESHOLD`. Now derived dynamically as `[THRESHOLD * 0.375, THRESHOLD]`.
+- **Import from Immich: missing face IDs**: refs imported via "Import from Immich" had `face_id: null`, preventing clean deletion later. Face IDs are now extracted during import.
+
+### Docs
+- Pre-built images published to GHCR for NVIDIA (`:latest`), AMD/ROCm (`:rocm`), and CPU-only (`:cpu`). No build step needed.
+- Clarified that the tagger can run on a separate machine from Immich. Set `IMMICH_URL` to Immich's IP or hostname and change `external: true` to `external: false` at the bottom of `docker-compose.yml`.
+- Added update instructions: `docker compose pull && docker compose up -d`.
+
+---
+
 ## v1.0.0
 
 ### Performance
