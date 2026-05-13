@@ -82,7 +82,7 @@ docker compose up -d
 docker compose logs -f   # watch startup logs
 ```
 
-**AMD (ROCm) or CPU-only:** build the image locally first (see [GPU support](#gpu-support)).
+**AMD (ROCm) or CPU-only:** change the image tag first (see [GPU support](#gpu-support)), then run the same commands above.
 
 On first start, the YOLO model (~6 MB) and CLIP model (~350 MB) are downloaded and cached. Subsequent starts are fast.
 
@@ -190,19 +190,17 @@ A GPU makes scans significantly faster but is not required. Pre-built images are
 
 **NVIDIA (default):** no changes needed, uses the `latest` image.
 
-**AMD GPU:** in `docker-compose.yml`, change the image tag and the deploy driver:
+**AMD GPU:** in `docker-compose.yml`, set the image tag to `:rocm` and change the deploy driver to `amdgpu`:
 ```yaml
 image: ghcr.io/tedornitier/immich-pet-tagger:rocm
-# under build.args:
-  ROCM: "true"
-# under deploy.resources.reservations.devices:
-  driver: amdgpu
+```
+```yaml
+driver: amdgpu
 ```
 
-**No GPU (CPU-only):** in `docker-compose.yml`, change the image tag and remove the deploy section:
+**No GPU (CPU-only):** in `docker-compose.yml`, set the image tag to `:cpu` and remove the entire `deploy:` section:
 ```yaml
 image: ghcr.io/tedornitier/immich-pet-tagger:cpu
-# remove the entire deploy: section
 ```
 
 CPU-only works fine for small libraries or infrequent scans. Expect roughly 10x slower processing.

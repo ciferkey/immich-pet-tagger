@@ -1,6 +1,7 @@
 services:
   immich-pet-tagger:
-    image: ghcr.io/tedornitier/immich-pet-tagger:latest
+    image: ghcr.io/tedornitier/immich-pet-tagger:latest  # AMD: use :rocm, CPU-only: use :cpu
+    # build: section below is only needed if you want to build from source instead of pulling the image
     build:
       context: .
       args:
