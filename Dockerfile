@@ -21,7 +21,7 @@ RUN if [ "$CUDA" = "true" ]; then \
       pip install --no-cache-dir \
         torch==2.7.0 \
         torchvision==0.22.0 \
-        --index-url https://download.pytorch.org/whl/rocm6.2; \
+        --index-url https://download.pytorch.org/whl/rocm6.3; \
     else \
       pip install --no-cache-dir torch==2.7.0 torchvision==0.22.0; \
     fi
