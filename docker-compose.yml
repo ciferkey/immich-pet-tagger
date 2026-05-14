@@ -28,8 +28,12 @@ services:
               capabilities: [gpu]
     volumes:
       - ./data:/data
+      - model_cache:/root/.cache
     networks:
       - immich_default  # must match the network name below
+
+volumes:
+  model_cache:
 
 networks:
   immich_default:       # set to your Immich Docker network name (docker network ls)
