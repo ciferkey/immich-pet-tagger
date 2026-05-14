@@ -82,6 +82,15 @@ On first start, the YOLO model (~6 MB) and CLIP model (~350 MB) are downloaded a
 
 Go to **http://localhost:8000** in your browser.
 
+The UI binds to `127.0.0.1` by default, so it is only reachable from the same machine. There is no authentication. To allow access from other devices on your network, change the port binding in `docker-compose.yml`:
+
+```yaml
+ports:
+  - "0.0.0.0:8000:8000"
+```
+
+Do not expose port 8000 to the internet without putting an authenticated reverse proxy in front of it.
+
 ## Updating
 
 To update to a new version, pull the latest image and restart:
@@ -171,7 +180,7 @@ After that, the background poller runs every 5 minutes and tags new photos autom
 | `IMMICH_API_KEY` | required | Immich API key |
 | `POLL_INTERVAL` | `300` | Seconds between scans |
 | `SCAN_WORKERS` | `GPU_WORKERS × 32` | Concurrent thumbnail fetches. Auto-derived to keep GPU batches full. Override only if Immich feels slow during scans. |
-| `GPU_WORKERS` | `2` | Parallel YOLO and CLIP inference threads. `2` is optimal for most GPUs; more threads shrink batch sizes and hurt throughput. |
+| `GPU_WORKERS` | `2` (GPU) / `1` (CPU) | Parallel YOLO and CLIP inference threads. `2` is optimal for GPU; CPU defaults to `1` since a second worker just duplicates the models in RAM with no throughput gain. |
 | `THRESHOLD` | `0.8` | Min confidence (0–1) to tag a photo |
 
 ---

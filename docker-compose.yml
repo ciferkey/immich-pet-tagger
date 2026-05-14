@@ -9,7 +9,7 @@ services:
     container_name: immich-pet-tagger
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       - IMMICH_URL=http://immich-server:2283      # name of your Immich container
       - IMMICH_API_KEY=your_api_key_here          # generate in Immich: Account Settings, API Keys
