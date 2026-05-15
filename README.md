@@ -80,16 +80,23 @@ On first start, the YOLO model (~6 MB) and CLIP model (~350 MB) are downloaded a
 
 ### 5. Open the UI
 
-Go to **http://localhost:8000** in your browser.
+Go to **http://localhost:2287** in your browser.
 
-The UI binds to `127.0.0.1` by default, so it is only reachable from the same machine. There is no authentication. To allow access from other devices on your network, change the port binding in `docker-compose.yml`:
+The UI binds to `127.0.0.1` by default, so it is only reachable from the same machine. There is no authentication. To allow access from other devices on your network, or to use a different port, change the port binding in `docker-compose.yml`:
 
 ```yaml
 ports:
-  - "0.0.0.0:8000:8000"
+  - "0.0.0.0:2287:8000"  # accessible from other devices on your network
 ```
 
-Do not expose port 8000 to the internet without putting an authenticated reverse proxy in front of it.
+To use a different port, change only the first number. The second number (`8000`) is the container's internal port and must stay as-is:
+
+```yaml
+ports:
+  - "127.0.0.1:9000:8000"  # serves on port 9000 instead
+```
+
+Do not expose this to the internet without putting an authenticated reverse proxy in front of it.
 
 ## Updating
 
