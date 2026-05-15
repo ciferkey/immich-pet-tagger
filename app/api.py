@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
 
@@ -83,13 +84,6 @@ async def get_config():
 def _slim_asset(a: dict) -> dict:
     return {"id": a["id"], "thumb": f"/api/crop/{a['id']}", "date": a.get("localDateTime", "")[:10], "filename": a.get("originalFileName", "")}
 
-
-def _slim_asset_with_crops(a: dict) -> dict:
-    """Like _slim_asset but includes YOLO crop metadata. Only call after crops are cached."""
-    base = _slim_asset(a)
-    crops = emb.get_crops_info(a["id"])
-    base["crops"] = crops if crops else None
-    return base
 
 
 async def _visual_search(
@@ -457,21 +451,14 @@ async def get_suggestions(name: str, limit: int = 20):
             return []
         pet_idx = names.index(name)
         scored = []
-        for a in candidates:
-            crops_info = emb.get_crops_info(a["id"])
-            if not crops_info:
-                continue
-            base = _slim_asset(a)
-            for c in crops_info:
-                crop_img = emb.get_crop_image(a["id"], c["crop_idx"])
-                if crop_img is None:
-                    continue
-                vec = emb.embed_image(crop_img)
-                if vec is None:
-                    continue
-                v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
-                prob = float(clf.predict_proba(scaler.transform(v))[0][pet_idx])
-                scored.append((prob, {**base, "crops": [c]}))
+        with ThreadPoolExecutor(max_workers=emb.SCAN_WORKERS) as ex:
+            futures = {ex.submit(emb.get_crops_and_embed, a["id"]): a for a in candidates}
+            for future in as_completed(futures):
+                a = futures[future]
+                for c, vec in (future.result() or []):
+                    v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
+                    prob = float(clf.predict_proba(scaler.transform(v))[0][pet_idx])
+                    scored.append((prob, {**_slim_asset(a), "crops": [c]}))
         scored.sort(key=lambda x: x[0], reverse=True)
         return [item for _, item in scored[:limit]]
 
@@ -528,25 +515,21 @@ async def get_borderline(name: str, limit: int = 40):
             pet_idx = names.index(name)
             state.borderline_progress["total"] = len(candidates)
             scored = []
-            for i, a in enumerate(candidates):
-                if state.borderline_request_id != my_id:
-                    return []
-                state.borderline_progress["current"] = i + 1
-                crops_info = emb.get_crops_info(a["id"])
-                if not crops_info:
-                    continue
-                base = _slim_asset(a)
-                for c in crops_info:
-                    crop_img = emb.get_crop_image(a["id"], c["crop_idx"])
-                    if crop_img is None:
-                        continue
-                    vec = emb.embed_image(crop_img)
-                    if vec is None:
-                        continue
-                    v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
-                    pet_prob = float(clf.predict_proba(scaler.transform(v))[0][pet_idx])
-                    if LOW <= pet_prob < HIGH:
-                        scored.append((pet_prob, {**base, "crops": [c], "score": round(pet_prob, 3)}))
+            with ThreadPoolExecutor(max_workers=emb.SCAN_WORKERS) as ex:
+                futures = {ex.submit(emb.get_crops_and_embed, a["id"]): a for a in candidates}
+                done = 0
+                for future in as_completed(futures):
+                    if state.borderline_request_id != my_id:
+                        ex.shutdown(wait=False, cancel_futures=True)
+                        return []
+                    done += 1
+                    state.borderline_progress["current"] = done
+                    a = futures[future]
+                    for c, vec in (future.result() or []):
+                        v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
+                        pet_prob = float(clf.predict_proba(scaler.transform(v))[0][pet_idx])
+                        if LOW <= pet_prob < HIGH:
+                            scored.append((pet_prob, {**_slim_asset(a), "crops": [c], "score": round(pet_prob, 3)}))
             scored.sort(key=lambda x: x[0])
             return scored[:limit]
         finally:
@@ -833,29 +816,26 @@ async def thumbnail(asset_id: str):
     return StreamingResponse(resp.aiter_bytes(), media_type=resp.headers.get("content-type", "image/jpeg"))
 
 
-@router.get("/crop/{asset_id}/{crop_idx}")
-async def animal_crop_indexed(asset_id: str, crop_idx: int):
-    """Return a specific YOLO crop by index."""
-    crop = await asyncio.to_thread(emb.get_crop_image, asset_id, crop_idx)
-    if crop is not None:
-        buf = io.BytesIO()
-        crop.save(buf, "JPEG", quality=85)
-        buf.seek(0)
-        return StreamingResponse(buf, media_type="image/jpeg")
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.get(f"{imm.IMMICH_URL}/api/assets/{asset_id}/thumbnail?size=preview", headers=imm.headers())
-    return StreamingResponse(resp.aiter_bytes(), media_type=resp.headers.get("content-type", "image/jpeg"))
-
-
 @router.get("/crop/{asset_id}")
-async def animal_crop(asset_id: str):
-    """Return the first YOLO-cropped animal region. Falls back to full thumbnail if no animal detected."""
-    crop = await asyncio.to_thread(emb.get_animal_crop, asset_id)
-    if crop is not None:
-        buf = io.BytesIO()
-        crop.save(buf, "JPEG", quality=85)
-        buf.seek(0)
-        return StreamingResponse(buf, media_type="image/jpeg")
+async def animal_crop(asset_id: str, bbox: str | None = None):
+    """Return a cropped animal region by bbox (x1,y1,x2,y2 normalized), or the full thumbnail."""
+    if bbox:
+        try:
+            x1, y1, x2, y2 = [float(v) for v in bbox.split(",")]
+            def do_crop():
+                img = emb.fetch_thumbnail(asset_id)
+                if img is None:
+                    return None
+                w, h = img.size
+                return img.crop((int(x1 * w), int(y1 * h), int(x2 * w), int(y2 * h)))
+            crop = await asyncio.to_thread(do_crop)
+            if crop is not None:
+                buf = io.BytesIO()
+                crop.save(buf, "JPEG", quality=85)
+                buf.seek(0)
+                return StreamingResponse(buf, media_type="image/jpeg")
+        except (ValueError, Exception):
+            pass
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.get(f"{imm.IMMICH_URL}/api/assets/{asset_id}/thumbnail?size=preview", headers=imm.headers())
     return StreamingResponse(resp.aiter_bytes(), media_type=resp.headers.get("content-type", "image/jpeg"))

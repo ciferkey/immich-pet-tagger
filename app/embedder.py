@@ -1,7 +1,6 @@
 """CLIP batch inference workers and image embedding."""
 
 import io
-import json
 import logging
 import os
 import pickle
@@ -28,7 +27,6 @@ CLIP_PRETRAINED = "openai"
 
 _embed_cache: dict[str, np.ndarray] = {}
 _cache_path: Path | None = None
-_crop_cache_dir: Path | None = None
 
 # ---------------------------------------------------------------------------
 # CLIP batch workers
@@ -170,61 +168,20 @@ def crop_animals(img: Image.Image) -> list[tuple[tuple, Image.Image]]:
     ]
 
 
-def init_crop_cache(data_dir: Path) -> None:
-    global _crop_cache_dir
-    _crop_cache_dir = data_dir / "crops"
-    _crop_cache_dir.mkdir(exist_ok=True)
-
-
-def get_crops_info(asset_id: str) -> list[dict]:
-    """Return [{crop_idx, bbox}] for all YOLO crops, with disk caching. Empty if no animals."""
-    if _crop_cache_dir is not None:
-        meta_file = _crop_cache_dir / f"{asset_id}_meta.json"
-        if meta_file.exists():
-            try:
-                return json.loads(meta_file.read_text())
-            except Exception:
-                pass
+def get_crops_and_embed(asset_id: str) -> list[tuple[dict, np.ndarray]]:
+    """Fetch thumbnail once, run YOLO, embed each crop. Returns [(crop_info, vec), ...]."""
     img = fetch_thumbnail(asset_id)
     if img is None:
         return []
     crops = crop_animals(img)
     if not crops:
-        if _crop_cache_dir is not None:
-            try:
-                (_crop_cache_dir / f"{asset_id}_meta.json").write_text("[]")
-            except Exception:
-                pass
         return []
-    result = [{"crop_idx": i, "bbox": list(bbox)} for i, (bbox, _) in enumerate(crops)]
-    if _crop_cache_dir is not None:
-        try:
-            (_crop_cache_dir / f"{asset_id}_meta.json").write_text(json.dumps(result))
-            for i, (_, crop_img) in enumerate(crops):
-                crop_img.save(_crop_cache_dir / f"{asset_id}_{i}.jpg", "JPEG", quality=85)
-        except Exception:
-            pass
+    result = []
+    for i, (bbox, crop_img) in enumerate(crops):
+        vec = embed_image(crop_img)
+        if vec is not None:
+            result.append(({"crop_idx": i, "bbox": list(bbox)}, vec))
     return result
-
-
-def get_crop_image(asset_id: str, crop_idx: int) -> Image.Image | None:
-    """Return a specific YOLO crop by index. Runs get_crops_info to populate cache if needed."""
-    if _crop_cache_dir is not None:
-        f = _crop_cache_dir / f"{asset_id}_{crop_idx}.jpg"
-        if f.exists():
-            try:
-                return Image.open(f).convert("RGB")
-            except Exception:
-                pass
-    get_crops_info(asset_id)
-    if _crop_cache_dir is not None:
-        f = _crop_cache_dir / f"{asset_id}_{crop_idx}.jpg"
-        if f.exists():
-            try:
-                return Image.open(f).convert("RGB")
-            except Exception:
-                pass
-    return None
 
 
 def embed_crop_by_bbox(asset_id: str, bbox: list) -> np.ndarray | None:
@@ -263,19 +220,12 @@ def _save_embed_cache() -> None:
 
 
 def get_animal_crop(asset_id: str) -> Image.Image | None:
-    """Return the first YOLO crop for an asset, with disk caching. Returns None if no animal detected."""
-    if _crop_cache_dir is not None:
-        for name in (f"{asset_id}_0.jpg", f"{asset_id}.jpg"):
-            f = _crop_cache_dir / name
-            if f.exists():
-                try:
-                    return Image.open(f).convert("RGB")
-                except Exception:
-                    pass
-    crops_info = get_crops_info(asset_id)
-    if not crops_info:
+    """Return the first YOLO crop for an asset. Returns None if no animal detected."""
+    img = fetch_thumbnail(asset_id)
+    if img is None:
         return None
-    return get_crop_image(asset_id, 0)
+    crops = crop_animals(img)
+    return crops[0][1] if crops else None
 
 
 def embed_asset_crops(asset_id: str, require_animal: bool = False) -> list[np.ndarray]:
@@ -283,18 +233,17 @@ def embed_asset_crops(asset_id: str, require_animal: bool = False) -> list[np.nd
     cached = _embed_cache.get(asset_id)
     if cached is not None:
         return cached if isinstance(cached, list) else [cached]
-    crops_info = get_crops_info(asset_id)
-    if not crops_info:
+    img = fetch_thumbnail(asset_id)
+    if img is None:
+        return []
+    crops = crop_animals(img)
+    if not crops:
         if require_animal:
-            return []
-        img = fetch_thumbnail(asset_id)
-        if img is None:
             return []
         vec = embed_image(img)
         vecs = [vec] if vec is not None else []
     else:
-        crop_imgs = [get_crop_image(asset_id, info["crop_idx"]) for info in crops_info]
-        vecs = [v for v in (embed_image(c) for c in crop_imgs if c is not None) if v is not None]
+        vecs = [v for v in (embed_image(crop_img) for _, crop_img in crops) if v is not None]
     if vecs:
         _embed_cache[asset_id] = vecs
         _save_embed_cache()
