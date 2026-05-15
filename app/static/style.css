@@ -44,7 +44,7 @@ body { font-family: 'SF Pro Display','Segoe UI',system-ui,sans-serif; background
 .photo-thumb { border-radius: var(--radius-sm); overflow: hidden; cursor: pointer; position: relative; border: 0.5px solid var(--border); transition: border-color 0.1s; background: var(--bg3); user-select: none; }
 .photo-thumb:hover { border-color: var(--accent); }
 .photo-thumb.selected { border: 2px solid var(--accent); }
-.photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.photo-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
 .photo-check { position: absolute; top: 4px; right: 4px; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); display: none; align-items: center; justify-content: center; font-size: 10px; color: #fff; }
 .photo-thumb.selected .photo-check { display: flex; }
 .photo-thumb.is-ref .photo-check { display: flex; background: var(--success); }
