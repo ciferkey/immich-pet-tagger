@@ -666,7 +666,7 @@ async def import_pet(body: PetImport):
     if check.status_code != 200:
         raise HTTPException(status_code=404, detail="Person not found in Immich")
 
-    candidates = []
+    candidates: list[tuple[str, str | None]] = []
     async with httpx.AsyncClient(timeout=60) as client:
         search = await client.post(
             f"{imm.IMMICH_URL}/api/search/metadata",
@@ -687,8 +687,24 @@ async def import_pet(body: PetImport):
                     if len(named) == 1:
                         candidates.append((aid, named.get(body.person_id)))
 
-    n = min(len(candidates), 20)
-    assets = [{"asset_id": candidates[int(i * len(candidates) / n)][0], "face_id": candidates[int(i * len(candidates) / n)][1]} for i in range(n)]
+    def resolve_all(pairs):
+        result = []
+        with ThreadPoolExecutor(max_workers=emb.SCAN_WORKERS) as ex:
+            futures = {ex.submit(emb.resolve_bbox, aid): (aid, face_id) for aid, face_id in pairs}
+            for future in as_completed(futures):
+                aid, face_id = futures[future]
+                bbox = future.result()
+                if bbox:
+                    result.append((aid, face_id, bbox))
+        result.sort(key=lambda x: x[0])
+        return result
+
+    verified = await asyncio.to_thread(resolve_all, candidates)
+    n = min(len(verified), 20)
+    assets = [
+        {"asset_id": verified[int(i * len(verified) / n)][0], "face_id": verified[int(i * len(verified) / n)][1], "bbox": verified[int(i * len(verified) / n)][2]}
+        for i in range(n)
+    ] if n else []
 
     (PETS_DIR / body.person_id).mkdir(parents=True, exist_ok=True)
     data.save_pet_refs(body.person_id, assets, DATA_DIR)
