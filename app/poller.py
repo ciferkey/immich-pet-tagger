@@ -74,10 +74,10 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
         return
 
     all_pet_names = list(config.keys())
-    all_ref_ids = {name: data.load_pet_asset_ids(config[name].get("person_id") or name, dd) for name in all_pet_names}
+    all_refs = {name: data.load_pet_refs(config[name].get("person_id") or name, dd) for name in all_pet_names}
 
-    pet_names = [n for n in all_pet_names if all_ref_ids.get(n)]
-    ref_ids_per_pet = {n: all_ref_ids[n] for n in pet_names}
+    pet_names = [n for n in all_pet_names if all_refs.get(n)]
+    refs_per_pet = {n: all_refs[n] for n in pet_names}
     skipped = [n for n in all_pet_names if n not in pet_names]
 
     if skipped:
@@ -86,13 +86,13 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
         log.warning("No pets with reference assets, enroll pets via the UI first.")
         return
 
-    log.info(f"Pets: {', '.join(f'{n}({len(ref_ids_per_pet[n])} refs)' for n in pet_names)}")
+    log.info(f"Pets: {', '.join(f'{n}({len(refs_per_pet[n])} refs)' for n in pet_names)}")
 
     negative_ids = data.load_negative_ids(dd)
     if negative_ids:
         log.info(f"Loaded {len(negative_ids)} negative samples")
 
-    result = clf_mod.build_classifier(pet_names, ref_ids_per_pet, negative_ids)
+    result = clf_mod.build_classifier(pet_names, refs_per_pet, negative_ids)
     if result is None:
         return
     names, clf, scaler = result

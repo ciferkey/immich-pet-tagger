@@ -1,6 +1,7 @@
 """CLIP batch inference workers and image embedding."""
 
 import io
+import json
 import logging
 import os
 import pickle
@@ -175,6 +176,68 @@ def init_crop_cache(data_dir: Path) -> None:
     _crop_cache_dir.mkdir(exist_ok=True)
 
 
+def get_crops_info(asset_id: str) -> list[dict]:
+    """Return [{crop_idx, bbox}] for all YOLO crops, with disk caching. Empty if no animals."""
+    if _crop_cache_dir is not None:
+        meta_file = _crop_cache_dir / f"{asset_id}_meta.json"
+        if meta_file.exists():
+            try:
+                return json.loads(meta_file.read_text())
+            except Exception:
+                pass
+    img = fetch_thumbnail(asset_id)
+    if img is None:
+        return []
+    crops = crop_animals(img)
+    if not crops:
+        if _crop_cache_dir is not None:
+            try:
+                (_crop_cache_dir / f"{asset_id}_meta.json").write_text("[]")
+            except Exception:
+                pass
+        return []
+    result = [{"crop_idx": i, "bbox": list(bbox)} for i, (bbox, _) in enumerate(crops)]
+    if _crop_cache_dir is not None:
+        try:
+            (_crop_cache_dir / f"{asset_id}_meta.json").write_text(json.dumps(result))
+            for i, (_, crop_img) in enumerate(crops):
+                crop_img.save(_crop_cache_dir / f"{asset_id}_{i}.jpg", "JPEG", quality=85)
+        except Exception:
+            pass
+    return result
+
+
+def get_crop_image(asset_id: str, crop_idx: int) -> Image.Image | None:
+    """Return a specific YOLO crop by index. Runs get_crops_info to populate cache if needed."""
+    if _crop_cache_dir is not None:
+        f = _crop_cache_dir / f"{asset_id}_{crop_idx}.jpg"
+        if f.exists():
+            try:
+                return Image.open(f).convert("RGB")
+            except Exception:
+                pass
+    get_crops_info(asset_id)
+    if _crop_cache_dir is not None:
+        f = _crop_cache_dir / f"{asset_id}_{crop_idx}.jpg"
+        if f.exists():
+            try:
+                return Image.open(f).convert("RGB")
+            except Exception:
+                pass
+    return None
+
+
+def embed_crop_by_bbox(asset_id: str, bbox: list) -> np.ndarray | None:
+    """Embed a specific crop by normalized bounding box. Used for crop-centric refs."""
+    img = fetch_thumbnail(asset_id)
+    if img is None:
+        return None
+    w, h = img.size
+    x1, y1, x2, y2 = bbox
+    crop_img = img.crop((int(x1 * w), int(y1 * h), int(x2 * w), int(y2 * h)))
+    return embed_image(crop_img)
+
+
 def load_embed_cache(data_dir: Path) -> None:
     global _cache_path
     _cache_path = data_dir / "embeddings.pkl"
@@ -200,43 +263,44 @@ def _save_embed_cache() -> None:
 
 
 def get_animal_crop(asset_id: str) -> Image.Image | None:
-    """Return the YOLO crop for an asset, with disk caching. Returns None if no animal detected."""
+    """Return the first YOLO crop for an asset, with disk caching. Returns None if no animal detected."""
     if _crop_cache_dir is not None:
-        cached = _crop_cache_dir / f"{asset_id}.jpg"
-        if cached.exists():
-            try:
-                return Image.open(cached).convert("RGB")
-            except Exception:
-                pass
-    img = fetch_thumbnail(asset_id)
-    if img is None:
+        for name in (f"{asset_id}_0.jpg", f"{asset_id}.jpg"):
+            f = _crop_cache_dir / name
+            if f.exists():
+                try:
+                    return Image.open(f).convert("RGB")
+                except Exception:
+                    pass
+    crops_info = get_crops_info(asset_id)
+    if not crops_info:
         return None
-    crops = crop_animals(img)
-    if not crops:
-        return None
-    crop = crops[0][1]
-    if _crop_cache_dir is not None:
-        try:
-            crop.save(_crop_cache_dir / f"{asset_id}.jpg", "JPEG", quality=85)
-        except Exception:
-            pass
-    return crop
+    return get_crop_image(asset_id, 0)
+
+
+def embed_asset_crops(asset_id: str, require_animal: bool = False) -> list[np.ndarray]:
+    """Return one embedding per detected animal crop. Falls back to full image if no crops and require_animal is False."""
+    cached = _embed_cache.get(asset_id)
+    if cached is not None:
+        return cached if isinstance(cached, list) else [cached]
+    crops_info = get_crops_info(asset_id)
+    if not crops_info:
+        if require_animal:
+            return []
+        img = fetch_thumbnail(asset_id)
+        if img is None:
+            return []
+        vec = embed_image(img)
+        vecs = [vec] if vec is not None else []
+    else:
+        crop_imgs = [get_crop_image(asset_id, info["crop_idx"]) for info in crops_info]
+        vecs = [v for v in (embed_image(c) for c in crop_imgs if c is not None) if v is not None]
+    if vecs:
+        _embed_cache[asset_id] = vecs
+        _save_embed_cache()
+    return vecs
 
 
 def embed_asset(asset_id: str, require_animal: bool = False) -> np.ndarray | None:
-    if asset_id in _embed_cache:
-        return _embed_cache[asset_id]
-    img = fetch_thumbnail(asset_id)
-    if img is None:
-        return None
-    crops = crop_animals(img)
-    if not crops:
-        if require_animal:
-            return None
-        vec = embed_image(img)
-    else:
-        vec = embed_image(crops[0][1])
-    if vec is not None:
-        _embed_cache[asset_id] = vec
-        _save_embed_cache()
-    return vec
+    vecs = embed_asset_crops(asset_id, require_animal)
+    return vecs[0] if vecs else None

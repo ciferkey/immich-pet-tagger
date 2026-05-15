@@ -54,6 +54,17 @@ class PetAssets(BaseModel):
     asset_ids: list[str]
 
 
+class CropRef(BaseModel):
+    asset_id: str
+    crop_idx: Optional[int] = None
+    bbox: Optional[list[float]] = None
+
+
+class PetCropAssets(BaseModel):
+    asset_ids: Optional[list[str]] = None  # backwards compat
+    assets: Optional[list[CropRef]] = None  # crop-centric format
+
+
 _VERSION_FILE = Path(__file__).parent / "VERSION"
 
 @router.get("/version")
@@ -70,7 +81,15 @@ async def get_config():
 
 
 def _slim_asset(a: dict) -> dict:
-    return {"id": a["id"], "thumb": f"/api/thumb/{a['id']}", "date": a.get("localDateTime", "")[:10], "filename": a.get("originalFileName", "")}
+    return {"id": a["id"], "thumb": f"/api/crop/{a['id']}", "date": a.get("localDateTime", "")[:10], "filename": a.get("originalFileName", "")}
+
+
+def _slim_asset_with_crops(a: dict) -> dict:
+    """Like _slim_asset but includes YOLO crop metadata. Only call after crops are cached."""
+    base = _slim_asset(a)
+    crops = emb.get_crops_info(a["id"])
+    base["crops"] = crops if crops else None
+    return base
 
 
 async def _visual_search(
@@ -130,7 +149,7 @@ async def list_pets():
     return {"pets": [
         {"name": name, "person_id": cfg.get("person_id"), "since": cfg.get("since"),
          "until": cfg.get("until"), "description": cfg.get("description"),
-         "ref_count": len(data.load_pet_asset_ids(cfg.get("person_id") or name, DATA_DIR))}
+         "ref_count": len(data.load_pet_refs(cfg.get("person_id") or name, DATA_DIR))}
         for name, cfg in config.items()
     ]}
 
@@ -274,35 +293,62 @@ async def get_pet_assets(name: str):
     if name not in config:
         raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
     person_id = config[name].get("person_id") or name
-    asset_ids = data.load_pet_asset_ids(person_id, DATA_DIR)
-    return {"assets": [{"id": aid, "thumb": f"/api/crop/{aid}"} for aid in asset_ids]}
+    refs = data.load_pet_refs(person_id, DATA_DIR)
+
+    def make_item(r: dict) -> dict:
+        aid = r["asset_id"]
+        cidx = r.get("crop_idx")
+        thumb = f"/api/crop/{aid}/{cidx}" if cidx is not None else f"/api/crop/{aid}"
+        return {"id": aid, "crop_idx": cidx, "bbox": r.get("bbox"), "thumb": thumb}
+
+    return {"assets": [make_item(r) for r in refs]}
 
 
 @router.post("/pets/{name}/assets")
-async def set_pet_assets(name: str, body: PetAssets):
+async def set_pet_assets(name: str, body: PetCropAssets):
     config = data.load_config(DATA_DIR)
     if name not in config:
         raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
     person_id = config[name].get("person_id")
     folder_key = person_id or name
 
-    existing_ids = set(data.load_pet_asset_ids(folder_key, DATA_DIR))
-    new_ids = [aid for aid in body.asset_ids if aid not in existing_ids]
-    log.info(f"Saving {len(body.asset_ids)} refs for pet '{name}' ({len(new_ids)} new)")
+    # Normalize to list of CropRef
+    if body.assets is not None:
+        crop_refs = body.assets
+    elif body.asset_ids is not None:
+        crop_refs = [CropRef(asset_id=aid) for aid in body.asset_ids]
+    else:
+        crop_refs = []
+
+    # Build lookup: asset_id -> existing ref (for face_id retrieval)
+    existing_refs_by_id: dict[str, dict] = {}
+    for r in data.load_pet_refs(folder_key, DATA_DIR):
+        existing_refs_by_id.setdefault(r["asset_id"], r)
+    existing_asset_ids = set(existing_refs_by_id.keys())
+
+    # Determine new asset_ids (need face assignment, deduplicated)
+    seen_aids: set[str] = set()
+    new_asset_ids: list[str] = []
+    for cr in crop_refs:
+        if cr.asset_id not in existing_asset_ids and cr.asset_id not in seen_aids:
+            seen_aids.add(cr.asset_id)
+            new_asset_ids.append(cr.asset_id)
+
+    log.info(f"Saving {len(crop_refs)} refs for pet '{name}' ({len(new_asset_ids)} new assets)")
 
     ok = fail = skipped = 0
-    existing_refs = {r["asset_id"]: r.get("face_id") for r in data.load_pet_refs(folder_key, DATA_DIR)}
+    new_face_ids: dict[str, str] = {}
 
-    if person_id and new_ids:
+    if person_id and new_asset_ids:
         async with httpx.AsyncClient(timeout=30) as client:
-            for aid in new_ids:
+            for aid in new_asset_ids:
                 existing_persons = await imm.get_existing_face_person_ids(client, aid)
                 if person_id in existing_persons:
                     skipped += 1
                     continue
                 face_id = await imm.post_face(client, aid, person_id)
                 if face_id:
-                    existing_refs[aid] = face_id
+                    new_face_ids[aid] = face_id
                     ok += 1
                 else:
                     fail += 1
@@ -310,30 +356,46 @@ async def set_pet_assets(name: str, body: PetAssets):
     elif not person_id:
         log.warning(f"Pet '{name}' has no person_id, skipping face assignment")
 
-    final_refs = [{"asset_id": aid, "face_id": existing_refs.get(aid)} for aid in body.asset_ids]
+    final_refs = []
+    for cr in crop_refs:
+        face_id = new_face_ids.get(cr.asset_id) or existing_refs_by_id.get(cr.asset_id, {}).get("face_id")
+        final_refs.append({
+            "asset_id": cr.asset_id,
+            "crop_idx": cr.crop_idx,
+            "bbox": cr.bbox,
+            "face_id": face_id,
+        })
     data.save_pet_refs(folder_key, final_refs, DATA_DIR)
-    return {"ok": True, "count": len(body.asset_ids), "faces_added": ok, "faces_failed": fail}
+    return {"ok": True, "count": len(final_refs), "faces_added": ok, "faces_failed": fail}
 
 
 @router.delete("/pets/{name}/assets/{asset_id}")
-async def remove_pet_asset(name: str, asset_id: str):
+async def remove_pet_asset(name: str, asset_id: str, crop_idx: Optional[int] = None):
     config = data.load_config(DATA_DIR)
     if name not in config:
         raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
     folder_key = config[name].get("person_id") or name
 
     refs = data.load_pet_refs(folder_key, DATA_DIR)
-    ref = next((r for r in refs if r["asset_id"] == asset_id), None)
-    face_id = ref.get("face_id") if ref else None
 
-    if face_id:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.request("DELETE", f"{imm.IMMICH_URL}/api/faces/{face_id}", headers=imm.headers(), json={"force": True})
-        log.info(f"Deleted face {face_id} on asset {asset_id} for pet '{name}' (status={resp.status_code})")
+    if crop_idx is not None:
+        remaining = [r for r in refs if not (r["asset_id"] == asset_id and r.get("crop_idx") == crop_idx)]
+        still_has_asset = any(r["asset_id"] == asset_id for r in remaining)
     else:
-        log.warning(f"No stored face_id for asset {asset_id} on pet '{name}', face not removed from Immich")
+        remaining = [r for r in refs if r["asset_id"] != asset_id]
+        still_has_asset = False
 
-    data.save_pet_refs(folder_key, [r for r in refs if r["asset_id"] != asset_id], DATA_DIR)
+    if not still_has_asset:
+        removed = [r for r in refs if r["asset_id"] == asset_id]
+        face_id = removed[0].get("face_id") if removed else None
+        if face_id:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.request("DELETE", f"{imm.IMMICH_URL}/api/faces/{face_id}", headers=imm.headers(), json={"force": True})
+            log.info(f"Deleted face {face_id} on asset {asset_id} for pet '{name}' (status={resp.status_code})")
+        else:
+            log.warning(f"No stored face_id for asset {asset_id} on pet '{name}', face not removed from Immich")
+
+    data.save_pet_refs(folder_key, remaining, DATA_DIR)
     return {"ok": True}
 
 
@@ -361,10 +423,8 @@ async def get_suggestions(name: str, limit: int = 20):
 
     async with httpx.AsyncClient(timeout=30) as client:
         if ref_ids:
-            # Stage 1: visual search using ref photos as queries
             candidates = await _visual_search(client, ref_ids, pet_cfg, exclude)
         else:
-            # Fallback for 0-ref case: text search
             body: dict = {"query": description, "type": "IMAGE", "limit": 60}
             if pet_cfg.get("since"):
                 body["takenAfter"] = pet_cfg["since"] + "T00:00:00.000Z"
@@ -382,33 +442,41 @@ async def get_suggestions(name: str, limit: int = 20):
     if not ref_ids:
         return {"assets": [_slim_asset(a) for a in candidates[:limit]]}
 
-    # Stage 2: classify candidates with the same classifier as the poller
     all_pet_names = list(config.keys())
-    all_ref_ids = {n: data.load_pet_asset_ids(config[n].get("person_id") or n, DATA_DIR) for n in all_pet_names}
-    pet_names = [n for n in all_pet_names if all_ref_ids.get(n)]
-    ref_ids_per_pet = {n: all_ref_ids[n] for n in pet_names}
+    all_refs = {n: data.load_pet_refs(config[n].get("person_id") or n, DATA_DIR) for n in all_pet_names}
+    pet_names = [n for n in all_pet_names if all_refs.get(n)]
+    refs_per_pet = {n: all_refs[n] for n in pet_names}
     negative_ids = data.load_negative_ids(DATA_DIR)
 
     def compute():
-        result = build_classifier(pet_names, ref_ids_per_pet, negative_ids)
+        result = build_classifier(pet_names, refs_per_pet, negative_ids)
         if result is None:
-            return candidates[:limit]
+            return []
         names, clf, scaler = result
         if name not in names:
-            return candidates[:limit]
+            return []
         pet_idx = names.index(name)
         scored = []
         for a in candidates:
-            vec = embed_asset(a["id"])
-            if vec is not None:
+            crops_info = emb.get_crops_info(a["id"])
+            if not crops_info:
+                continue
+            base = _slim_asset(a)
+            for c in crops_info:
+                crop_img = emb.get_crop_image(a["id"], c["crop_idx"])
+                if crop_img is None:
+                    continue
+                vec = emb.embed_image(crop_img)
+                if vec is None:
+                    continue
                 v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
-                pet_prob = float(clf.predict_proba(scaler.transform(v))[0][pet_idx])
-                scored.append((pet_prob, a))
+                prob = float(clf.predict_proba(scaler.transform(v))[0][pet_idx])
+                scored.append((prob, {**base, "crops": [c]}))
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [a for _, a in scored[:limit]]
+        return [item for _, item in scored[:limit]]
 
     results = await asyncio.to_thread(compute)
-    return {"assets": [_slim_asset(a) for a in results]}
+    return {"assets": results}
 
 
 @router.get("/pets/{name}/borderline")
@@ -435,9 +503,9 @@ async def get_borderline(name: str, limit: int = 40):
         return {"assets": []}
 
     all_pet_names = list(config.keys())
-    all_ref_ids = {n: data.load_pet_asset_ids(config[n].get("person_id") or n, DATA_DIR) for n in all_pet_names}
-    pet_names = [n for n in all_pet_names if all_ref_ids.get(n)]
-    ref_ids_per_pet = {n: all_ref_ids[n] for n in pet_names}
+    all_refs = {n: data.load_pet_refs(config[n].get("person_id") or n, DATA_DIR) for n in all_pet_names}
+    pet_names = [n for n in all_pet_names if all_refs.get(n)]
+    refs_per_pet = {n: all_refs[n] for n in pet_names}
     negative_ids = data.load_negative_ids(DATA_DIR)
 
     from poller import THRESHOLD
@@ -451,7 +519,7 @@ async def get_borderline(name: str, limit: int = 40):
         state.borderline_progress["total"] = 0
         state.borderline_progress["running"] = True
         try:
-            result = build_classifier(pet_names, ref_ids_per_pet, negative_ids)
+            result = build_classifier(pet_names, refs_per_pet, negative_ids)
             if result is None:
                 return []
             names, clf, scaler = result
@@ -464,12 +532,21 @@ async def get_borderline(name: str, limit: int = 40):
                 if state.borderline_request_id != my_id:
                     return []
                 state.borderline_progress["current"] = i + 1
-                vec = embed_asset(a["id"])
-                if vec is not None:
+                crops_info = emb.get_crops_info(a["id"])
+                if not crops_info:
+                    continue
+                base = _slim_asset(a)
+                for c in crops_info:
+                    crop_img = emb.get_crop_image(a["id"], c["crop_idx"])
+                    if crop_img is None:
+                        continue
+                    vec = emb.embed_image(crop_img)
+                    if vec is None:
+                        continue
                     v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
                     pet_prob = float(clf.predict_proba(scaler.transform(v))[0][pet_idx])
                     if LOW <= pet_prob < HIGH:
-                        scored.append((pet_prob, a))
+                        scored.append((pet_prob, {**base, "crops": [c], "score": round(pet_prob, 3)}))
             scored.sort(key=lambda x: x[0])
             return scored[:limit]
         finally:
@@ -479,7 +556,7 @@ async def get_borderline(name: str, limit: int = 40):
     from poller import THRESHOLD
     scored = await asyncio.to_thread(compute)
     return {
-        "assets": [{**_slim_asset(a), "score": round(prob, 3)} for prob, a in scored],
+        "assets": [slim for _, slim in scored],
         "threshold": THRESHOLD,
     }
 
@@ -496,8 +573,8 @@ async def get_neg_candidates(limit: int = 60):
     config = data.load_config(DATA_DIR)
 
     all_pet_names = list(config.keys())
-    ref_ids_per_pet = {n: data.load_pet_asset_ids(config[n].get("person_id") or n, DATA_DIR) for n in all_pet_names}
-    all_ref_ids: set[str] = {rid for ids in ref_ids_per_pet.values() for rid in ids}
+    all_refs = {n: data.load_pet_refs(config[n].get("person_id") or n, DATA_DIR) for n in all_pet_names}
+    all_ref_ids: set[str] = {r["asset_id"] for refs in all_refs.values() for r in refs}
     neg_ids = set(data.load_negative_ids(DATA_DIR))
     skipped_ids = set(data.load_skipped_ids(DATA_DIR))
     exclude = all_ref_ids | neg_ids | skipped_ids
@@ -516,7 +593,8 @@ async def get_neg_candidates(limit: int = 60):
     if not candidates:
         return {"assets": [], "threshold": THRESHOLD}
 
-    pet_names = [n for n in all_pet_names if ref_ids_per_pet.get(n)]
+    pet_names = [n for n in all_pet_names if all_refs.get(n)]
+    refs_per_pet = {n: all_refs[n] for n in pet_names}
     negative_ids = data.load_negative_ids(DATA_DIR)
 
     state.neg_request_id += 1
@@ -527,7 +605,7 @@ async def get_neg_candidates(limit: int = 60):
         state.neg_progress["total"] = 0
         state.neg_progress["running"] = True
         try:
-            result = build_classifier(pet_names, ref_ids_per_pet, negative_ids)
+            result = build_classifier(pet_names, refs_per_pet, negative_ids)
             if result is None:
                 return []
             names, clf, scaler = result
@@ -543,7 +621,6 @@ async def get_neg_candidates(limit: int = 60):
                     v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
                     probs = clf.predict_proba(scaler.transform(v))[0]
                     pet_prob = (1.0 - float(probs[unknown_idx])) if unknown_idx >= 0 else 0.0
-                    # Skip photos the classifier is very confident about either way.
                     if 0.05 <= pet_prob < THRESHOLD:
                         scored.append((pet_prob, a))
             scored.sort(key=lambda x: x[0], reverse=True)
@@ -712,7 +789,7 @@ async def get_scan_low_confidence():
     sorted_assets = sorted(seen.values(), key=lambda a: a["prob"])
     return {
         "assets": [
-            {"id": a["asset_id"], "thumb": f"/api/thumb/{a['asset_id']}",
+            {"id": a["asset_id"], "thumb": f"/api/crop/{a['asset_id']}",
              "pet_name": a["pet_name"], "score": a["prob"], "date": a.get("date", "")}
             for a in sorted_assets
         ],
@@ -756,9 +833,23 @@ async def thumbnail(asset_id: str):
     return StreamingResponse(resp.aiter_bytes(), media_type=resp.headers.get("content-type", "image/jpeg"))
 
 
+@router.get("/crop/{asset_id}/{crop_idx}")
+async def animal_crop_indexed(asset_id: str, crop_idx: int):
+    """Return a specific YOLO crop by index."""
+    crop = await asyncio.to_thread(emb.get_crop_image, asset_id, crop_idx)
+    if crop is not None:
+        buf = io.BytesIO()
+        crop.save(buf, "JPEG", quality=85)
+        buf.seek(0)
+        return StreamingResponse(buf, media_type="image/jpeg")
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{imm.IMMICH_URL}/api/assets/{asset_id}/thumbnail?size=preview", headers=imm.headers())
+    return StreamingResponse(resp.aiter_bytes(), media_type=resp.headers.get("content-type", "image/jpeg"))
+
+
 @router.get("/crop/{asset_id}")
 async def animal_crop(asset_id: str):
-    """Return the YOLO-cropped animal region. Falls back to full thumbnail if no animal detected."""
+    """Return the first YOLO-cropped animal region. Falls back to full thumbnail if no animal detected."""
     crop = await asyncio.to_thread(emb.get_animal_crop, asset_id)
     if crop is not None:
         buf = io.BytesIO()
