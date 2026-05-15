@@ -117,7 +117,7 @@ Getting good results takes a few iterations. Start by adding a pet, building up 
 
 ### Step 1: Add your pet
 
-**Import from Immich**: use this if Immich already recognizes your pet as a person from its own face detection.
+**Import from Immich**: use this if Immich already recognizes your pet as a person from its own face detection. This is ideal when the person in Immich contains only photos of that pet, for example if you tagged them manually and are confident the assignments are correct. The tagger does not remove or correct existing Immich face assignments, so any misidentified photos already tagged in Immich will stay tagged. If Immich's recognition was noisy, consider adding your pet manually instead.
 
 1. Click **↓ Import from Immich** in the sidebar
 2. Find and click your pet in the grid
