@@ -27,6 +27,7 @@ CLIP_PRETRAINED = "openai"
 
 _embed_cache: dict[str, np.ndarray] = {}
 _cache_path: Path | None = None
+_crop_cache_dir: Path | None = None
 
 # ---------------------------------------------------------------------------
 # CLIP batch workers
@@ -168,6 +169,12 @@ def crop_animals(img: Image.Image) -> list[tuple[tuple, Image.Image]]:
     ]
 
 
+def init_crop_cache(data_dir: Path) -> None:
+    global _crop_cache_dir
+    _crop_cache_dir = data_dir / "crops"
+    _crop_cache_dir.mkdir(exist_ok=True)
+
+
 def load_embed_cache(data_dir: Path) -> None:
     global _cache_path
     _cache_path = data_dir / "embeddings.pkl"
@@ -192,16 +199,43 @@ def _save_embed_cache() -> None:
         log.warning(f"Could not save embedding cache: {e}")
 
 
-def embed_asset(asset_id: str) -> np.ndarray | None:
+def get_animal_crop(asset_id: str) -> Image.Image | None:
+    """Return the YOLO crop for an asset, with disk caching. Returns None if no animal detected."""
+    if _crop_cache_dir is not None:
+        cached = _crop_cache_dir / f"{asset_id}.jpg"
+        if cached.exists():
+            try:
+                return Image.open(cached).convert("RGB")
+            except Exception:
+                pass
+    img = fetch_thumbnail(asset_id)
+    if img is None:
+        return None
+    crops = crop_animals(img)
+    if not crops:
+        return None
+    crop = crops[0][1]
+    if _crop_cache_dir is not None:
+        try:
+            crop.save(_crop_cache_dir / f"{asset_id}.jpg", "JPEG", quality=85)
+        except Exception:
+            pass
+    return crop
+
+
+def embed_asset(asset_id: str, require_animal: bool = False) -> np.ndarray | None:
     if asset_id in _embed_cache:
         return _embed_cache[asset_id]
     img = fetch_thumbnail(asset_id)
     if img is None:
         return None
     crops = crop_animals(img)
-    vec = embed_image(crops[0][1]) if crops else None
-    if vec is None:
+    if not crops:
+        if require_animal:
+            return None
         vec = embed_image(img)
+    else:
+        vec = embed_image(crops[0][1])
     if vec is not None:
         _embed_cache[asset_id] = vec
         _save_embed_cache()

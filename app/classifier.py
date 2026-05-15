@@ -26,12 +26,12 @@ def build_classifier(
         ids = ref_ids_per_pet.get(name, [])
         log.info(f"Embedding {len(ids)} refs for '{name}'...")
         for aid in ids:
-            vec = emb.embed_asset(aid)
+            vec = emb.embed_asset(aid, require_animal=True)
             if vec is not None:
                 all_vecs.append(vec)
                 all_labels.append(i)
             else:
-                log.warning(f"  Could not embed ref {aid} for '{name}'")
+                log.warning(f"  Skipped ref {aid} for '{name}' (no animal detected by YOLO)")
 
     total_refs = sum(len(ids) for ids in ref_ids_per_pet.values())
     if negative_ids:

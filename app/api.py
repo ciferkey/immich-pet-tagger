@@ -15,7 +15,10 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+import io
+
 import data
+import embedder as emb
 import immich as imm
 import state
 from embedder import embed_asset
@@ -272,7 +275,7 @@ async def get_pet_assets(name: str):
         raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
     person_id = config[name].get("person_id") or name
     asset_ids = data.load_pet_asset_ids(person_id, DATA_DIR)
-    return {"assets": [{"id": aid, "thumb": f"/api/thumb/{aid}"} for aid in asset_ids]}
+    return {"assets": [{"id": aid, "thumb": f"/api/crop/{aid}"} for aid in asset_ids]}
 
 
 @router.post("/pets/{name}/assets")
@@ -748,6 +751,20 @@ async def person_thumbnail(person_id: str):
 
 @router.get("/thumb/{asset_id}")
 async def thumbnail(asset_id: str):
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{imm.IMMICH_URL}/api/assets/{asset_id}/thumbnail?size=preview", headers=imm.headers())
+    return StreamingResponse(resp.aiter_bytes(), media_type=resp.headers.get("content-type", "image/jpeg"))
+
+
+@router.get("/crop/{asset_id}")
+async def animal_crop(asset_id: str):
+    """Return the YOLO-cropped animal region. Falls back to full thumbnail if no animal detected."""
+    crop = await asyncio.to_thread(emb.get_animal_crop, asset_id)
+    if crop is not None:
+        buf = io.BytesIO()
+        crop.save(buf, "JPEG", quality=85)
+        buf.seek(0)
+        return StreamingResponse(buf, media_type="image/jpeg")
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.get(f"{imm.IMMICH_URL}/api/assets/{asset_id}/thumbnail?size=preview", headers=imm.headers())
     return StreamingResponse(resp.aiter_bytes(), media_type=resp.headers.get("content-type", "image/jpeg"))
