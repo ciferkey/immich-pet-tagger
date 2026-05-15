@@ -46,6 +46,47 @@ def asset_in_range(time_str: str, since: str | None, until: str | None) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Ref migration
+# ---------------------------------------------------------------------------
+
+def migrate_ref_bboxes(data_dir: Path) -> None:
+    """One-time migration: fill in missing bbox and face_id fields on old-format refs."""
+    config = data.load_config(data_dir)
+    bbox_resolved = 0
+    bbox_unresolvable = 0
+    face_recovered = 0
+    for pet_name, cfg in config.items():
+        folder_key = cfg.get("person_id") or pet_name
+        person_id = cfg.get("person_id")
+        refs = data.load_pet_refs(folder_key, data_dir)
+        changed = False
+        for ref in refs:
+            if not ref.get("bbox"):
+                bbox = emb.resolve_bbox(ref["asset_id"])
+                if bbox:
+                    ref["bbox"] = bbox
+                    changed = True
+                    bbox_resolved += 1
+                else:
+                    bbox_unresolvable += 1
+            if not ref.get("face_id") and person_id:
+                face_id = imm.fetch_face_id_for_person(ref["asset_id"], person_id)
+                if face_id:
+                    ref["face_id"] = face_id
+                    changed = True
+                    face_recovered += 1
+        if changed:
+            data.save_pet_refs(folder_key, refs, data_dir)
+    parts = []
+    if bbox_resolved or bbox_unresolvable:
+        parts.append(f"bbox: {bbox_resolved} resolved, {bbox_unresolvable} unresolvable")
+    if face_recovered:
+        parts.append(f"face_id: {face_recovered} recovered")
+    if parts:
+        log.info(f"Ref migration: {', '.join(parts)}")
+
+
+# ---------------------------------------------------------------------------
 # Main poll cycle
 # ---------------------------------------------------------------------------
 

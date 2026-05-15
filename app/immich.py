@@ -54,6 +54,19 @@ def fetch_assets_created_after(created_after_iso: str) -> list[tuple[str, str]]:
     return out
 
 
+def fetch_face_id_for_person(asset_id: str, person_id: str) -> str | None:
+    """Return the face_id on asset_id that belongs to person_id, or None."""
+    try:
+        r = requests.get(f"{IMMICH_URL}/api/faces", params={"id": asset_id}, headers=headers(), timeout=10)
+        if r.status_code == 200:
+            for face in r.json():
+                if (face.get("person") or {}).get("id") == person_id:
+                    return face.get("id")
+    except Exception:
+        pass
+    return None
+
+
 def fetch_asset_face_person_ids(asset_id: str) -> set[str]:
     """Return set of person_ids already assigned as faces on this asset."""
     try:

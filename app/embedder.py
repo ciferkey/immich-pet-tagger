@@ -253,3 +253,12 @@ def embed_asset_crops(asset_id: str, require_animal: bool = False) -> list[np.nd
 def embed_asset(asset_id: str, require_animal: bool = False) -> np.ndarray | None:
     vecs = embed_asset_crops(asset_id, require_animal)
     return vecs[0] if vecs else None
+
+
+def resolve_bbox(asset_id: str) -> list | None:
+    """Return the first YOLO bounding box for an asset, or None if no animal detected."""
+    img = fetch_thumbnail(asset_id)
+    if img is None:
+        return None
+    crops = crop_animals(img)
+    return list(crops[0][0]) if crops else None
