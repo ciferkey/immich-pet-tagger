@@ -16,6 +16,7 @@ services:
       - IMMICH_EXTERNAL_URL=http://localhost:2283 # how your browser reaches Immich
       - POLL_INTERVAL=300
       - GPU_WORKERS=1
+      - YOLO_INPUT_SIZE=640
       - THRESHOLD=0.8
     # Uncomment the section below to enable NVIDIA GPU acceleration.
     # Requires nvidia-container-toolkit: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
