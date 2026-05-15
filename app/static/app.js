@@ -221,15 +221,16 @@ function viewFindRefs() {
 
 async function viewSuggestions() {
   if (!activePet) return;
-  if (!activePet.description) { toast('Edit this pet and add a description to use this feature', 'error'); return; }
+  const pet = activePet;
+  if (!pet.description) { toast('Edit this pet and add a description to use this feature', 'error'); return; }
   selectedCrops.clear(); lastClickedKey = null; updateSelUI();
   const grid = document.getElementById('photoGrid');
   const label = document.getElementById('resultsLabel');
   grid.innerHTML = '<div class="loading" style="grid-column:1/-1">Finding similar photos… this may take a moment</div>';
   label.textContent = 'Finding references…';
   try {
-    const d = await api(`/api/pets/${encodeURIComponent(activePet.name)}/suggestions`);
-    label.textContent = `${d.assets.length} photo${d.assets.length !== 1 ? 's' : ''} similar to ${activePet.name}'s refs`;
+    const d = await api(`/api/pets/${encodeURIComponent(pet.name)}/suggestions`);
+    label.textContent = `${d.assets.length} photo${d.assets.length !== 1 ? 's' : ''} similar to ${pet.name}'s refs`;
     if (!d.assets.length) {
       grid.innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-icon">🐾</div><div class="empty-title">No suggestions found</div><div class="empty-sub">Add more refs or broaden the date range</div></div>';
       return;
@@ -425,11 +426,12 @@ async function viewNegCandidates() {
 
 async function clearAllRefs() {
   if (!activePet) return;
-  if (!confirm(`Remove all reference photos for ${activePet.name} from Pet Tagger? This will not affect Immich.`)) return;
+  const pet = activePet;
+  if (!confirm(`Remove all reference photos for ${pet.name} from Pet Tagger? This will not affect Immich.`)) return;
   try {
-    await api(`/api/pets/${encodeURIComponent(activePet.name)}/refs`, { method: 'DELETE' });
+    await api(`/api/pets/${encodeURIComponent(pet.name)}/refs`, { method: 'DELETE' });
     refsItems = [];
-    await loadRefs(activePet.name);
+    await loadRefs(pet.name);
     await refreshState();
     toast('All refs cleared', 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
@@ -662,6 +664,7 @@ function closeEditModal() { document.getElementById('editPetModal').classList.re
 
 async function submitEditPet() {
   if (!_petToEdit) return;
+  const prevActiveName = activePet?.name;
   clearModalError('editPetError');
   const name = document.getElementById('editPetName').value.trim();
   if (!name) { modalError('editPetError', 'Name cannot be empty'); return; }
@@ -676,10 +679,9 @@ async function submitEditPet() {
   try {
     await api(`/api/pets/${encodeURIComponent(_petToEdit)}`, { method: 'PATCH', body: { name, description, since: sinceRaw || null, until: untilRaw || null } });
     closeEditModal();
-    const prevName = activePet?.name;
     activePet = null; clearSearch();
     await loadPets(true);
-    const selectName = prevName === _petToEdit ? name : (prevName || pets[0]?.name);
+    const selectName = prevActiveName === _petToEdit ? name : (prevActiveName || pets[0]?.name);
     if (selectName) await selectPet(selectName);
     toast('Saved', 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
