@@ -292,8 +292,12 @@ async def get_pet_assets(name: str):
     def make_item(r: dict) -> dict:
         aid = r["asset_id"]
         cidx = r.get("crop_idx")
-        thumb = f"/api/crop/{aid}/{cidx}" if cidx is not None else f"/api/crop/{aid}"
-        return {"id": aid, "crop_idx": cidx, "bbox": r.get("bbox"), "thumb": thumb}
+        bbox = r.get("bbox")
+        if bbox:
+            thumb = f"/api/crop/{aid}?bbox={','.join(str(v) for v in bbox)}"
+        else:
+            thumb = f"/api/crop/{aid}"
+        return {"id": aid, "crop_idx": cidx, "bbox": bbox, "thumb": thumb}
 
     return {"assets": [make_item(r) for r in refs]}
 
