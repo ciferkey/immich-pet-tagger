@@ -101,7 +101,7 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
     log.info(f"Fetching assets taken after: {last_ts}")
 
     t0 = time.time()
-    assets = imm.fetch_assets_taken_after(last_ts)
+    assets = imm.fetch_assets_created_after(last_ts)
     log.info(f"Fetched {len(assets)} assets in {time.time()-t0:.1f}s")
 
     if not assets:

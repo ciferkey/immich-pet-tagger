@@ -23,8 +23,9 @@ def headers() -> dict:
 # Sync (poller)
 # ---------------------------------------------------------------------------
 
-def fetch_assets_taken_after(taken_after_iso: str) -> list[tuple[str, str]]:
-    """Return [(asset_id, fileCreatedAt_iso), ...] for all assets taken after the given timestamp."""
+def fetch_assets_created_after(created_after_iso: str) -> list[tuple[str, str]]:
+    """Return [(asset_id, createdAt_iso), ...] for all assets uploaded to Immich after the given timestamp.
+    Uses createdAt (upload time) rather than fileCreatedAt (EXIF date) so photos synced late never fall behind the cutoff."""
     url = f"{IMMICH_URL}/api/search/metadata"
     hdrs = {**headers(), "Content-Type": "application/json"}
     out: list[tuple[str, str]] = []
@@ -32,24 +33,23 @@ def fetch_assets_taken_after(taken_after_iso: str) -> list[tuple[str, str]]:
     size = 1000
     while True:
         try:
-            r = requests.post(url, json={"takenAfter": taken_after_iso, "page": page, "size": size, "order": "asc"}, headers=hdrs, timeout=30)
+            r = requests.post(url, json={"createdAfter": created_after_iso, "page": page, "size": size, "order": "asc"}, headers=hdrs, timeout=30)
             if r.status_code != 200:
-                log.warning(f"fetch_assets_taken_after: status={r.status_code} page={page}")
+                log.warning(f"fetch_assets_created_after: status={r.status_code} page={page}")
                 break
             data = r.json()
             block = data.get("assets") or {}
             items = (block.get("items") if isinstance(block, dict) else None) or data.get("items") or []
-            total = (block.get("total", 0) if isinstance(block, dict) else 0) or data.get("total", 0)
             for a in items:
                 aid = a.get("id")
-                ts = a.get("fileCreatedAt") or a.get("localDateTime") or ""
+                ts = a.get("createdAt") or ""
                 if aid and ts:
                     out.append((str(aid).strip("\x00"), ts))
             if len(items) < size:
                 break
             page += 1
         except Exception as e:
-            log.error(f"fetch_assets_taken_after error: {e}")
+            log.error(f"fetch_assets_created_after error: {e}")
             break
     return out
 
