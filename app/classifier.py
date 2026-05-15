@@ -37,11 +37,13 @@ def build_classifier(
                     log.warning(f"  Skipped ref {asset_id} for '{name}' (could not embed crop)")
             else:
                 vecs = emb.embed_asset_crops(asset_id, require_animal=True)
+                if not vecs:
+                    vecs = emb.embed_asset_crops(asset_id, require_animal=False)
                 if vecs:
                     all_vecs.extend(vecs)
                     all_labels.extend([i] * len(vecs))
                 else:
-                    log.warning(f"  Skipped ref {asset_id} for '{name}' (no animal detected by YOLO)")
+                    log.warning(f"  Skipped ref {asset_id} for '{name}' (thumbnail unavailable)")
 
     total_refs = sum(len(refs) for refs in refs_per_pet.values())
     if negative_ids:
