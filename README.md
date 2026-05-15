@@ -213,6 +213,8 @@ driver: amdgpu
 
 CPU-only works fine for most home libraries. Expect roughly 10x slower processing compared to GPU.
 
+**Unsupported:** Pascal GPUs (GTX 1070, 1080, etc., compute capability sm_61) are not supported by the `:latest` image. Use `:cpu` instead.
+
 ## Limitations
 
 - **YOLO fallback**: when no animals are detected by YOLO, the full image is classified as a whole and only one pet can be tagged per photo
