@@ -14,9 +14,9 @@ ARG CUDA=false
 ARG ROCM=false
 RUN if [ "$CUDA" = "true" ]; then \
       pip install --no-cache-dir \
-        torch==2.7.0+cu128 \
-        torchvision==0.22.0+cu128 \
-        --extra-index-url https://download.pytorch.org/whl/cu128; \
+        torch==2.7.0+cu126 \
+        torchvision==0.22.0+cu126 \
+        --extra-index-url https://download.pytorch.org/whl/cu126; \
     elif [ "$ROCM" = "true" ]; then \
       pip install --no-cache-dir \
         torch==2.7.0 \

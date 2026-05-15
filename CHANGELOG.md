@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.2.1
+
+### Fixes
+- **Pascal GPU support**: the NVIDIA image now ships with PyTorch's CUDA 12.6 wheels instead of CUDA 12.8, restoring kernels for compute capability 5.0–9.0 (Maxwell through Hopper). Fixes `CUDA error: no kernel image is available for execution on the device` on GTX 9xx/10xx and Volta cards. Trade-off: Blackwell (RTX 50xx) is no longer covered by the default image.
+
+---
+
 ## v1.2.0
 
 ### Features
