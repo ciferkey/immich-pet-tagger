@@ -126,17 +126,18 @@ function renderRefs(assets) {
 
 async function removeRef(assetId, cropIdx = null) {
   if (!activePet) return;
+  const pet = activePet;
   try {
     const url = cropIdx != null
-      ? `/api/pets/${encodeURIComponent(activePet.name)}/assets/${assetId}?crop_idx=${cropIdx}`
-      : `/api/pets/${encodeURIComponent(activePet.name)}/assets/${assetId}`;
+      ? `/api/pets/${encodeURIComponent(pet.name)}/assets/${assetId}?crop_idx=${cropIdx}`
+      : `/api/pets/${encodeURIComponent(pet.name)}/assets/${assetId}`;
     await api(url, { method: 'DELETE' });
     refsItems = refsItems.filter(r => {
       if (r.id !== assetId) return true;
       if (cropIdx != null) return r.crop_idx !== cropIdx;
       return false;
     });
-    await loadRefs(activePet.name);
+    await loadRefs(pet.name);
     await refreshState();
     toast('Removed');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
@@ -144,6 +145,7 @@ async function removeRef(assetId, cropIdx = null) {
 
 async function assignSelected() {
   if (!activePet || !selectedCrops.size) return;
+  const pet = activePet;
   const newCrops = [...selectedCrops.values()];
   const existing = refsItems.map(r => ({ asset_id: r.id, crop_idx: r.crop_idx, bbox: r.bbox }));
   const seen = new Set();
@@ -153,12 +155,12 @@ async function assignSelected() {
     seen.add(k); return true;
   });
   try {
-    await api(`/api/pets/${encodeURIComponent(activePet.name)}/assets`, { method: 'POST', body: { assets: merged } });
+    await api(`/api/pets/${encodeURIComponent(pet.name)}/assets`, { method: 'POST', body: { assets: merged } });
     selectedCrops.clear(); updateSelUI();
     document.querySelectorAll('.photo-thumb.selected').forEach(el => { el.classList.remove('selected'); el.classList.add('is-ref'); });
-    await loadRefs(activePet.name);
+    await loadRefs(pet.name);
     await refreshState();
-    toast(`Added to ${activePet.name}`, 'success');
+    toast(`Added to ${pet.name}`, 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
@@ -188,7 +190,7 @@ function renderPhotoItems(a, thr) {
     </div>`;
   };
   if (a.crops && a.crops.length > 0) {
-    return a.crops.map(c => makeItem(`${a.id}_${c.crop_idx}`, `/api/crop/${a.id}/${c.crop_idx}`, c.crop_idx, c.bbox));
+    return a.crops.map(c => makeItem(`${a.id}_${c.crop_idx}`, `/api/crop/${a.id}?bbox=${c.bbox.join(',')}`, c.crop_idx, c.bbox));
   }
   return [makeItem(a.id, a.thumb, null, null)];
 }
