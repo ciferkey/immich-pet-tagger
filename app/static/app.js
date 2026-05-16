@@ -36,7 +36,7 @@ async function loadPets(keepActive = false) {
     }
     renderSidebar();
     updateNegStatus();
-    if (!keepActive && !activePet && pets.length > 0) await selectPet(pets[0].name);
+    if (!keepActive && !activePet && pets.length > 0) showGuide();
   } catch(e) { toast('Could not load pets: ' + e.message, 'error'); }
 }
 
