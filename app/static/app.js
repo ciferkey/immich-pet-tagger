@@ -19,7 +19,7 @@ async function refreshState() {
     const cfg = await api('/api/config');
     immichUrl = cfg.immich_external_url.replace(/\/$/, '');
   } catch(e) {}
-  loadPets();
+  await loadPets();
   loadNegatives();
 }
 
@@ -36,7 +36,6 @@ async function loadPets(keepActive = false) {
     }
     renderSidebar();
     updateNegStatus();
-    if (!keepActive && !activePet && pets.length > 0) showGuide();
   } catch(e) { toast('Could not load pets: ' + e.message, 'error'); }
 }
 
@@ -821,6 +820,7 @@ document.getElementById('importDetailModal').addEventListener('click', function(
 
 (async () => {
   await refreshState();
+  if (!activePet && pets.length > 0) showGuide();
   loadTimestamp();
   loadScanResult();
   api('/api/version').then(async d => {
