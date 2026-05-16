@@ -37,7 +37,14 @@ def load_pet_refs(pet_name: str, data_dir: Path) -> list[dict]:
 
 
 def load_pet_asset_ids(pet_name: str, data_dir: Path) -> list[str]:
-    return [r["asset_id"] for r in load_pet_refs(pet_name, data_dir)]
+    seen: set[str] = set()
+    result = []
+    for r in load_pet_refs(pet_name, data_dir):
+        aid = r["asset_id"]
+        if aid not in seen:
+            seen.add(aid)
+            result.append(aid)
+    return result
 
 
 def save_pet_refs(pet_name: str, refs: list[dict], data_dir: Path) -> None:

@@ -14,7 +14,7 @@ log = logging.getLogger("classifier")
 
 def build_classifier(
     pet_names: list[str],
-    ref_ids_per_pet: dict[str, list[str]],
+    refs_per_pet: dict[str, list[dict]],
     negative_ids: list[str] | None = None,
 ) -> tuple[list[str], LogisticRegression, StandardScaler] | None:
     all_vecs = []
@@ -23,17 +23,29 @@ def build_classifier(
     names = pet_names + ["unknown"]
 
     for i, name in enumerate(pet_names):
-        ids = ref_ids_per_pet.get(name, [])
-        log.info(f"Embedding {len(ids)} refs for '{name}'...")
-        for aid in ids:
-            vec = emb.embed_asset(aid)
-            if vec is not None:
-                all_vecs.append(vec)
-                all_labels.append(i)
+        refs = refs_per_pet.get(name, [])
+        log.info(f"Embedding {len(refs)} refs for '{name}'...")
+        for ref in refs:
+            asset_id = ref["asset_id"]
+            bbox = ref.get("bbox")
+            if bbox:
+                vec = emb.embed_crop_by_bbox(asset_id, bbox)
+                if vec is not None:
+                    all_vecs.append(vec)
+                    all_labels.append(i)
+                else:
+                    log.warning(f"  Skipped ref {asset_id} for '{name}' (could not embed crop)")
             else:
-                log.warning(f"  Could not embed ref {aid} for '{name}'")
+                vecs = emb.embed_asset_crops(asset_id, require_animal=True)
+                if not vecs:
+                    vecs = emb.embed_asset_crops(asset_id, require_animal=False)
+                if vecs:
+                    all_vecs.extend(vecs)
+                    all_labels.extend([i] * len(vecs))
+                else:
+                    log.warning(f"  Skipped ref {asset_id} for '{name}' (thumbnail unavailable)")
 
-    total_refs = sum(len(ids) for ids in ref_ids_per_pet.values())
+    total_refs = sum(len(refs) for refs in refs_per_pet.values())
     if negative_ids:
         target = total_refs * 3
         if len(negative_ids) > target:
@@ -42,8 +54,8 @@ def build_classifier(
 
         log.info(f"Embedding {len(negative_ids)} negative samples...")
         for aid in negative_ids:
-            vec = emb.embed_asset(aid)
-            if vec is not None:
+            vecs = emb.embed_asset_crops(aid)
+            for vec in vecs:
                 all_vecs.append(vec)
                 all_labels.append(unknown_idx)
 

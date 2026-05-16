@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.3.0
+
+### Crop-centric references
+- References now store the YOLO-detected crop rather than the full image, matching the format seen during inference. Existing refs are migrated automatically on startup.
+- The ref grid now shows the crop thumbnail instead of the full photo.
+- Import from Immich and Find references now run YOLO on candidates and skip photos where no animal is detected.
+- When YOLO finds no crop for a ref, the full image is used as a fallback instead of silently dropping the ref.
+
+### UX improvements
+- Updated getting started guide with guidance based on tested results: aim for 20–30 references, ~50 negatives. Action buttons now have matching tooltips. Skip renamed to Ignore.
+- Refs panel no longer scrolls to the top when removing a ref.
+- Fixed an intermittent bug where clicking a pet in the sidebar would show the getting started guide instead of the pet view.
+- Find candidates now samples 50 photos instead of 100 (faster) and raises the minimum score threshold to 30%.
+
+### Other
+- Scan progress now uses upload time (`createdAt`) instead of EXIF date, so late-synced photos never fall behind the scan cutoff.
+- Ref and negative grid thumbnails now use `object-fit: contain`.
+- Default UI port changed to 2287.
+
+---
+
 ## v1.2.0
 
 ### Features

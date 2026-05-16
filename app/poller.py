@@ -46,6 +46,47 @@ def asset_in_range(time_str: str, since: str | None, until: str | None) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Ref migration
+# ---------------------------------------------------------------------------
+
+def migrate_ref_bboxes(data_dir: Path) -> None:
+    """One-time migration: fill in missing bbox and face_id fields on old-format refs."""
+    config = data.load_config(data_dir)
+    bbox_resolved = 0
+    bbox_unresolvable = 0
+    face_recovered = 0
+    for pet_name, cfg in config.items():
+        folder_key = cfg.get("person_id") or pet_name
+        person_id = cfg.get("person_id")
+        refs = data.load_pet_refs(folder_key, data_dir)
+        changed = False
+        for ref in refs:
+            if not ref.get("bbox"):
+                bbox = emb.resolve_bbox(ref["asset_id"])
+                if bbox:
+                    ref["bbox"] = bbox
+                    changed = True
+                    bbox_resolved += 1
+                else:
+                    bbox_unresolvable += 1
+            if not ref.get("face_id") and person_id:
+                face_id = imm.fetch_face_id_for_person(ref["asset_id"], person_id)
+                if face_id:
+                    ref["face_id"] = face_id
+                    changed = True
+                    face_recovered += 1
+        if changed:
+            data.save_pet_refs(folder_key, refs, data_dir)
+    parts = []
+    if bbox_resolved or bbox_unresolvable:
+        parts.append(f"bbox: {bbox_resolved} resolved, {bbox_unresolvable} unresolvable")
+    if face_recovered:
+        parts.append(f"face_id: {face_recovered} recovered")
+    if parts:
+        log.info(f"Ref migration: {', '.join(parts)}")
+
+
+# ---------------------------------------------------------------------------
 # Main poll cycle
 # ---------------------------------------------------------------------------
 
@@ -74,10 +115,10 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
         return
 
     all_pet_names = list(config.keys())
-    all_ref_ids = {name: data.load_pet_asset_ids(config[name].get("person_id") or name, dd) for name in all_pet_names}
+    all_refs = {name: data.load_pet_refs(config[name].get("person_id") or name, dd) for name in all_pet_names}
 
-    pet_names = [n for n in all_pet_names if all_ref_ids.get(n)]
-    ref_ids_per_pet = {n: all_ref_ids[n] for n in pet_names}
+    pet_names = [n for n in all_pet_names if all_refs.get(n)]
+    refs_per_pet = {n: all_refs[n] for n in pet_names}
     skipped = [n for n in all_pet_names if n not in pet_names]
 
     if skipped:
@@ -86,13 +127,13 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
         log.warning("No pets with reference assets, enroll pets via the UI first.")
         return
 
-    log.info(f"Pets: {', '.join(f'{n}({len(ref_ids_per_pet[n])} refs)' for n in pet_names)}")
+    log.info(f"Pets: {', '.join(f'{n}({len(refs_per_pet[n])} refs)' for n in pet_names)}")
 
     negative_ids = data.load_negative_ids(dd)
     if negative_ids:
         log.info(f"Loaded {len(negative_ids)} negative samples")
 
-    result = clf_mod.build_classifier(pet_names, ref_ids_per_pet, negative_ids)
+    result = clf_mod.build_classifier(pet_names, refs_per_pet, negative_ids)
     if result is None:
         return
     names, clf, scaler = result
@@ -101,7 +142,7 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
     log.info(f"Fetching assets taken after: {last_ts}")
 
     t0 = time.time()
-    assets = imm.fetch_assets_taken_after(last_ts)
+    assets = imm.fetch_assets_created_after(last_ts)
     log.info(f"Fetched {len(assets)} assets in {time.time()-t0:.1f}s")
 
     if not assets:

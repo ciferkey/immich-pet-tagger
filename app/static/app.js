@@ -1,4 +1,4 @@
-let pets = [], activePet = null, selectedIds = new Set(), refsIds = [], negIds = [], immichUrl = 'http://localhost:2283', negCandidateMode = false, borderlineMode = false, scanLowConfMode = false, lastClickedId = null, negGeneration = 0, negPollTimer = null, blGeneration = 0, blPollTimer = null;
+let pets = [], activePet = null, selectedCrops = new Map(), refsItems = [], negIds = [], immichUrl = 'http://localhost:2283', negCandidateMode = false, borderlineMode = false, scanLowConfMode = false, lastClickedKey = null, negGeneration = 0, negPollTimer = null, blGeneration = 0, blPollTimer = null;
 
 async function api(path, opts = {}) {
   const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined });
@@ -19,7 +19,7 @@ async function refreshState() {
     const cfg = await api('/api/config');
     immichUrl = cfg.immich_external_url.replace(/\/$/, '');
   } catch(e) {}
-  loadPets();
+  await loadPets();
   loadNegatives();
 }
 
@@ -36,7 +36,6 @@ async function loadPets(keepActive = false) {
     }
     renderSidebar();
     updateNegStatus();
-    if (!keepActive && !activePet && pets.length > 0) await selectPet(pets[0].name);
   } catch(e) { toast('Could not load pets: ' + e.message, 'error'); }
 }
 
@@ -68,26 +67,26 @@ function showGuide() {
   document.getElementById('photoGrid').innerHTML = `<div class="guide" style="grid-column:1/-1">
     <div class="guide-steps">
       <div class="guide-step"><div class="guide-step-num">1</div><div class="guide-step-body"><div class="guide-step-title">Add your pet</div><div class="guide-step-desc">Click <strong>↓ Import from Immich</strong> if Immich already recognizes your pet as a person. Otherwise click <strong>+ Add pet</strong> to start from scratch.</div></div></div>
-      <div class="guide-step"><div class="guide-step-num">2</div><div class="guide-step-body"><div class="guide-step-title">Find reference photos</div><div class="guide-step-desc">Select your pet and click <strong>Find references</strong>. Browse the results and add 10–20 clear, varied photos. Avoid blurry shots and frames with multiple animals.</div></div></div>
-      <div class="guide-step"><div class="guide-step-num">3</div><div class="guide-step-body"><div class="guide-step-title">Add "not my pets" samples</div><div class="guide-step-desc">In the <strong>Not my pets</strong> panel, click <strong>Find candidates</strong>. Mark photos that look similar to your pet but are not. Aim for 2–3 times as many negatives as references.</div></div></div>
-      <div class="guide-step"><div class="guide-step-num">4</div><div class="guide-step-body"><div class="guide-step-title">Run a test scan</div><div class="guide-step-desc">Set the <strong>Scan from</strong> date 1–2 weeks back and click <strong>Scan</strong>. Review low confidence results: add correct ones as refs, mark wrong ones as not my pets.</div></div></div>
+      <div class="guide-step"><div class="guide-step-num">2</div><div class="guide-step-body"><div class="guide-step-title">Find reference photos</div><div class="guide-step-desc">Select your pet and click <strong>Find references</strong>. Aim for 20–30 to start; results improve up to around 50.<ul style="margin:6px 0 0 16px;padding:0;"><li><strong>Add to pet</strong>: clear, close-up shot, your pet is the only subject.</li><li><strong>Ignore</strong>: blurry, distant, another person or animal visible alongside your pet, or a look-alike that is not yours. Ignored photos won't appear again.</li><li><strong>Not my pets</strong>: photos that could confuse the classifier. Empty rooms, other species, ambiguous shots. Around 50 is enough.</li></ul></div></div></div>
+      <div class="guide-step"><div class="guide-step-num">3</div><div class="guide-step-body"><div class="guide-step-title">Add "not my pets" samples</div><div class="guide-step-desc">These teach the classifier what not to tag: empty rooms, other animals of a different species, ambiguous shots with no clear subject. Without them, the classifier will tag almost anything. In the <strong>Not my pets</strong> panel, click <strong>Find candidates</strong> to automatically surface more photos that might confuse the classifier.</div></div></div>
+      <div class="guide-step"><div class="guide-step-num">4</div><div class="guide-step-body"><div class="guide-step-title">Run a test scan</div><div class="guide-step-desc">Set the <strong>Scan from</strong> date 1–2 weeks back and click <strong>Scan</strong>. Review low confidence results: add correct ones as refs, and click <strong>Ignore</strong> on the rest. Ignored photos won't appear again.</div></div></div>
       <div class="guide-step"><div class="guide-step-num">5</div><div class="guide-step-body"><div class="guide-step-title">Iterate</div><div class="guide-step-desc">Repeat steps 2–4 a couple of times. Results typically stabilize after 2–3 rounds.</div></div></div>
       <div class="guide-step"><div class="guide-step-num">6</div><div class="guide-step-body"><div class="guide-step-title">Run the full backfill</div><div class="guide-step-desc">Once happy with accuracy, set the scan date to when you got your pet and run the full scan. After that, new photos are tagged automatically every 5 minutes.</div></div></div>
     </div>
   </div>`;
-  selectedIds.clear(); lastClickedId = null; updateSelUI();
+  selectedCrops.clear(); lastClickedKey = null; updateSelUI();
 }
 
 function clearSearch() {
   document.getElementById('resultsLabel').textContent = '';
   document.getElementById('photoGrid').innerHTML = '<div class="empty" style="grid-column:1/-1; height:300px;"><div class="empty-icon">🐾</div><div class="empty-title">Find photos</div><div class="empty-sub">Click "Find references" to get started</div></div>';
-  selectedIds.clear(); lastClickedId = null; updateSelUI();
+  selectedCrops.clear(); lastClickedKey = null; updateSelUI();
 }
 
 async function selectPet(name) {
   if (activePet?.name === name) return;
-  if (selectedIds.size > 0) {
-    const ok = confirm(`You have ${selectedIds.size} selected photo${selectedIds.size !== 1 ? 's' : ''} not yet assigned. Switch anyway?`);
+  if (selectedCrops.size > 0) {
+    const ok = confirm(`You have ${selectedCrops.size} selected photo${selectedCrops.size !== 1 ? 's' : ''} not yet assigned. Switch anyway?`);
     if (!ok) return;
   }
   negCandidateMode = false; borderlineMode = false; scanLowConfMode = false;
@@ -105,44 +104,111 @@ async function loadRefs(name) {
   grid.innerHTML = '<div class="loading">Loading…</div>';
   try {
     const d = await api(`/api/pets/${encodeURIComponent(name)}/assets`);
-    refsIds = d.assets.map(a => a.id); renderRefs(d.assets);
+    refsItems = d.assets;
+    renderRefs(d.assets);
   } catch(e) { grid.innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="empty-sub">Error loading refs</div></div>'; }
 }
 
 function renderRefs(assets) {
   const grid = document.getElementById('refsGrid');
   if (!assets.length) { grid.innerHTML = '<div class="empty" style="grid-column:1/-1;height:160px;"><div class="empty-sub">No references yet.<br>Click "Find references" to add some.</div></div>'; return; }
-  grid.innerHTML = assets.map(a => `
-    <div class="ref-thumb">
+  grid.innerHTML = assets.map(a => {
+    const cropArg = a.crop_idx != null ? a.crop_idx : 'null';
+    return `<div class="ref-thumb">
       <a href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" title="Open in Immich">
         <img src="${a.thumb}" loading="lazy" onerror="this.style.opacity=0.2">
       </a>
-      <button class="ref-remove" onclick="removeRef('${a.id}')" title="Remove">✕</button>
-    </div>`).join('');
+      <button class="ref-remove" onclick="removeRef('${a.id}', ${cropArg})" title="Remove">✕</button>
+    </div>`;
+  }).join('');
 }
 
-async function removeRef(id) {
+async function removeRef(assetId, cropIdx = null) {
   if (!activePet) return;
+  const pet = activePet;
   try {
-    await api(`/api/pets/${encodeURIComponent(activePet.name)}/assets/${id}`, { method: 'DELETE' });
-    refsIds = refsIds.filter(i => i !== id);
-    await loadRefs(activePet.name);
+    const url = cropIdx != null
+      ? `/api/pets/${encodeURIComponent(pet.name)}/assets/${assetId}?crop_idx=${cropIdx}`
+      : `/api/pets/${encodeURIComponent(pet.name)}/assets/${assetId}`;
+    await api(url, { method: 'DELETE' });
+    refsItems = refsItems.filter(r => {
+      if (r.id !== assetId) return true;
+      if (cropIdx != null) return r.crop_idx !== cropIdx;
+      return false;
+    });
+    const grid = document.getElementById('refsGrid');
+    const scrollTop = grid.scrollTop;
+    renderRefs(refsItems);
+    grid.scrollTop = scrollTop;
     await refreshState();
     toast('Removed');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
 async function assignSelected() {
-  if (!activePet || !selectedIds.size) return;
-  const newIds = [...new Set([...refsIds, ...selectedIds])];
+  if (!activePet || !selectedCrops.size) return;
+  const pet = activePet;
+  const newCrops = [...selectedCrops.values()];
+  const existing = refsItems.map(r => ({ asset_id: r.id, crop_idx: r.crop_idx, bbox: r.bbox }));
+  const seen = new Set();
+  const merged = [...existing, ...newCrops].filter(c => {
+    const k = c.crop_idx != null ? `${c.asset_id}_${c.crop_idx}` : c.asset_id;
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
   try {
-    await api(`/api/pets/${encodeURIComponent(activePet.name)}/assets`, { method: 'POST', body: { asset_ids: newIds } });
-    refsIds = newIds; selectedIds.clear(); updateSelUI();
+    await api(`/api/pets/${encodeURIComponent(pet.name)}/assets`, { method: 'POST', body: { assets: merged } });
+    selectedCrops.clear(); updateSelUI();
     document.querySelectorAll('.photo-thumb.selected').forEach(el => { el.classList.remove('selected'); el.classList.add('is-ref'); });
-    await loadRefs(activePet.name);
+    await loadRefs(pet.name);
     await refreshState();
-    toast(`Added to ${activePet.name}`, 'success');
+    toast(`Added to ${pet.name}`, 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+// ---------------------------------------------------------------------------
+// Photo grid rendering helpers
+// ---------------------------------------------------------------------------
+
+function getCropData(el) {
+  const cropIdx = el.dataset.cropIdx !== undefined && el.dataset.cropIdx !== '' ? parseInt(el.dataset.cropIdx) : null;
+  const bbox = el.dataset.bbox ? JSON.parse(el.dataset.bbox) : null;
+  return { asset_id: el.dataset.assetId, crop_idx: cropIdx, bbox };
+}
+
+function renderPhotoItems(a, thr) {
+  const badge = a.score != null
+    ? `<div class="score-badge ${a.score < thr ? 'score-low' : 'score-ok'}">${Math.round(a.score * 100)}%</div>`
+    : '';
+  const makeItem = (key, src, cropIdx, bbox) => {
+    const cropIdxAttr = cropIdx != null ? `data-crop-idx="${cropIdx}"` : '';
+    const bboxAttr = bbox ? `data-bbox='${JSON.stringify(bbox)}'` : '';
+    return `<div class="photo-thumb" id="th-${key}" data-asset-id="${a.id}" ${cropIdxAttr} ${bboxAttr}
+      onclick="toggleSelect(event,'${key}')" title="${a.filename || ''} · ${fmtDate(a.date)}">
+      <img src="${src}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
+      <a class="photo-open" href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">⤢</a>
+      <div class="photo-check">✓</div>
+      ${badge}
+    </div>`;
+  };
+  if (a.crops && a.crops.length > 0) {
+    return a.crops.map(c => makeItem(`${a.id}_${c.crop_idx}`, `/api/crop/${a.id}?bbox=${c.bbox.join(',')}`, c.crop_idx, c.bbox));
+  }
+  return [makeItem(a.id, a.thumb, null, null)];
+}
+
+function markGridItems(assets) {
+  const refKeys = new Set(refsItems.map(r => r.crop_idx != null ? `${r.id}_${r.crop_idx}` : r.id));
+  const negSet = new Set(negIds);
+  assets.forEach(a => {
+    const keys = (a.crops && a.crops.length > 0) ? a.crops.map(c => `${a.id}_${c.crop_idx}`) : [a.id];
+    keys.forEach(key => {
+      const el = document.getElementById('th-' + key);
+      if (!el) return;
+      if (refKeys.has(key) || refKeys.has(a.id)) el.classList.add('is-ref');
+      if (negSet.has(a.id)) el.classList.add('is-neg');
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -157,30 +223,22 @@ function viewFindRefs() {
 
 async function viewSuggestions() {
   if (!activePet) return;
-  if (!activePet.description) { toast('Edit this pet and add a description to use this feature', 'error'); return; }
-  selectedIds.clear(); lastClickedId = null; updateSelUI();
+  const pet = activePet;
+  if (!pet.description) { toast('Edit this pet and add a description to use this feature', 'error'); return; }
+  selectedCrops.clear(); lastClickedKey = null; updateSelUI();
   const grid = document.getElementById('photoGrid');
   const label = document.getElementById('resultsLabel');
   grid.innerHTML = '<div class="loading" style="grid-column:1/-1">Finding similar photos… this may take a moment</div>';
   label.textContent = 'Finding references…';
   try {
-    const d = await api(`/api/pets/${encodeURIComponent(activePet.name)}/suggestions`);
-    label.textContent = `${d.assets.length} photo${d.assets.length !== 1 ? 's' : ''} similar to ${activePet.name}'s refs`;
+    const d = await api(`/api/pets/${encodeURIComponent(pet.name)}/suggestions`);
+    label.textContent = `${d.assets.length} photo${d.assets.length !== 1 ? 's' : ''} similar to ${pet.name}'s refs`;
     if (!d.assets.length) {
       grid.innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-icon">🐾</div><div class="empty-title">No suggestions found</div><div class="empty-sub">Add more refs or broaden the date range</div></div>';
       return;
     }
-    grid.innerHTML = d.assets.map(a => `
-      <div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename} · ${fmtDate(a.date)}">
-        <img src="${a.thumb}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
-        <a class="photo-open" href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">⤢</a>
-        <div class="photo-check">✓</div>
-      </div>`).join('');
-    const refSet = new Set(refsIds), negSet = new Set(negIds);
-    d.assets.forEach(a => {
-      if (refSet.has(a.id)) document.getElementById('th-' + a.id)?.classList.add('is-ref');
-      if (negSet.has(a.id)) document.getElementById('th-' + a.id)?.classList.add('is-neg');
-    });
+    grid.innerHTML = d.assets.flatMap(a => renderPhotoItems(a, 0.8)).join('');
+    markGridItems(d.assets);
   } catch(e) {
     label.textContent = 'Failed to load suggestions';
     grid.innerHTML = `<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-sub">${e.message}</div></div>`;
@@ -193,7 +251,7 @@ async function viewBorderline() {
   const myGen = ++blGeneration;
   if (blPollTimer) { clearInterval(blPollTimer); blPollTimer = null; }
   negCandidateMode = false; borderlineMode = true;
-  selectedIds.clear(); lastClickedId = null; updateSelUI();
+  selectedCrops.clear(); lastClickedKey = null; updateSelUI();
   const grid = document.getElementById('photoGrid');
   const label = document.getElementById('resultsLabel');
   const petName = activePet.name;
@@ -221,20 +279,8 @@ async function viewBorderline() {
       return;
     }
     const thr = d.threshold ?? 0.8;
-    grid.innerHTML = d.assets.map(a => {
-      const cls = a.score < thr ? 'score-low' : 'score-ok';
-      return `<div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename} · ${fmtDate(a.date)}">
-        <img src="${a.thumb}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
-        <a class="photo-open" href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">⤢</a>
-        <div class="photo-check">✓</div>
-        <div class="score-badge ${cls}">${Math.round(a.score * 100)}%</div>
-      </div>`;
-    }).join('');
-    const refSet = new Set(refsIds), negSet = new Set(negIds);
-    d.assets.forEach(a => {
-      if (refSet.has(a.id)) document.getElementById('th-' + a.id)?.classList.add('is-ref');
-      if (negSet.has(a.id)) document.getElementById('th-' + a.id)?.classList.add('is-neg');
-    });
+    grid.innerHTML = d.assets.flatMap(a => renderPhotoItems(a, thr)).join('');
+    markGridItems(d.assets);
   } catch(e) {
     clearInterval(blPollTimer); blPollTimer = null;
     if (blGeneration !== myGen) return;
@@ -246,32 +292,32 @@ async function viewBorderline() {
 
 // ---------------------------------------------------------------------------
 
-function toggleSelect(e, id) {
-  const el = document.getElementById('th-' + id); if (!el) return;
+function toggleSelect(e, key) {
+  const el = document.getElementById('th-' + key); if (!el) return;
   if (el.classList.contains('is-ref')) return;
   if (el.classList.contains('is-neg')) return;
-  if (e.shiftKey && lastClickedId && lastClickedId !== id) {
+  if (e.shiftKey && lastClickedKey && lastClickedKey !== key) {
     const thumbs = [...document.querySelectorAll('#photoGrid .photo-thumb')];
-    const fromEl = document.getElementById('th-' + lastClickedId);
+    const fromEl = document.getElementById('th-' + lastClickedKey);
     const fromIdx = thumbs.indexOf(fromEl), toIdx = thumbs.indexOf(el);
     if (fromIdx !== -1 && toIdx !== -1) {
       const lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
       for (let i = lo; i <= hi; i++) {
         if (thumbs[i].classList.contains('is-ref') || thumbs[i].classList.contains('is-neg')) continue;
-        const tid = thumbs[i].id.slice(3);
-        selectedIds.add(tid); thumbs[i].classList.add('selected');
+        const tkey = thumbs[i].id.slice(3);
+        if (!selectedCrops.has(tkey)) { selectedCrops.set(tkey, getCropData(thumbs[i])); thumbs[i].classList.add('selected'); }
       }
     }
   } else {
-    if (selectedIds.has(id)) { selectedIds.delete(id); el.classList.remove('selected'); }
-    else { selectedIds.add(id); el.classList.add('selected'); }
-    lastClickedId = id;
+    if (selectedCrops.has(key)) { selectedCrops.delete(key); el.classList.remove('selected'); }
+    else { selectedCrops.set(key, getCropData(el)); el.classList.add('selected'); }
+    lastClickedKey = key;
   }
   updateSelUI();
 }
 
 function updateSelUI() {
-  const n = selectedIds.size;
+  const n = selectedCrops.size;
   document.getElementById('selCount').textContent = n ? `${n} selected` : '';
   document.getElementById('assignBtn').style.display = (n && activePet && !negCandidateMode && !scanLowConfMode) ? '' : 'none';
   document.getElementById('skipBtn').style.display = n ? '' : 'none';
@@ -280,13 +326,13 @@ function updateSelUI() {
 }
 
 async function skipSelected() {
-  if (!selectedIds.size) return;
-  const ids = [...selectedIds];
+  if (!selectedCrops.size) return;
+  const ids = [...new Set([...selectedCrops.values()].map(c => c.asset_id))];
   try {
     await api('/api/skipped', { method: 'POST', body: { asset_ids: ids } });
-    ids.forEach(id => document.getElementById('th-' + id)?.remove());
-    selectedIds.clear(); updateSelUI();
-    toast(`Skipped ${ids.length} photo${ids.length !== 1 ? 's' : ''}`, 'success');
+    ids.forEach(id => document.querySelectorAll(`[data-asset-id="${id}"]`).forEach(el => el.remove()));
+    selectedCrops.clear(); updateSelUI();
+    toast(`Ignored ${ids.length} photo${ids.length !== 1 ? 's' : ''}. Won't appear again.`, 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
@@ -319,12 +365,16 @@ async function loadNegatives() {
 }
 
 async function addSelectedAsNegatives() {
-  if (!selectedIds.size) return;
+  if (!selectedCrops.size) return;
+  const assetIds = [...new Set([...selectedCrops.values()].map(c => c.asset_id))];
   try {
-    await api('/api/negatives', { method: 'POST', body: { asset_ids: [...selectedIds] } });
-    negIds = [...new Set([...negIds, ...selectedIds])];
-    document.querySelectorAll('.photo-thumb.selected').forEach(el => { el.classList.remove('selected'); el.classList.add('is-neg'); });
-    selectedIds.clear(); updateSelUI();
+    await api('/api/negatives', { method: 'POST', body: { asset_ids: assetIds } });
+    negIds = [...new Set([...negIds, ...assetIds])];
+    selectedCrops.forEach((_, key) => {
+      const el = document.getElementById('th-' + key);
+      if (el) { el.classList.remove('selected'); el.classList.add('is-neg'); }
+    });
+    selectedCrops.clear(); updateSelUI();
     await loadNegatives();
     toast('Added to "not my pets"', 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
@@ -334,7 +384,7 @@ async function viewNegCandidates() {
   const myGen = ++negGeneration;
   if (negPollTimer) { clearInterval(negPollTimer); negPollTimer = null; }
   negCandidateMode = true; taggedMode = false;
-  selectedIds.clear(); lastClickedId = null; updateSelUI();
+  selectedCrops.clear(); lastClickedKey = null; updateSelUI();
   const grid = document.getElementById('photoGrid');
   const label = document.getElementById('resultsLabel');
   grid.innerHTML = '<div class="loading" id="negLoadMsg" style="grid-column:1/-1">Loading…</div>';
@@ -362,16 +412,7 @@ async function viewNegCandidates() {
       return;
     }
     const thr = d.threshold || 0.8;
-    grid.innerHTML = d.assets.map(a => {
-      const cls = a.score != null ? (a.score < thr ? 'score-low' : 'score-ok') : '';
-      const badge = a.score != null ? `<div class="score-badge ${cls}">${Math.round(a.score * 100)}%</div>` : '';
-      return `<div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${a.filename} · ${fmtDate(a.date)}">
-        <img src="${a.thumb}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
-        <a class="photo-open" href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">⤢</a>
-        <div class="photo-check">✓</div>
-        ${badge}
-      </div>`;
-    }).join('');
+    grid.innerHTML = d.assets.flatMap(a => renderPhotoItems(a, thr)).join('');
     const negSet = new Set(negIds);
     d.assets.forEach(a => {
       if (negSet.has(a.id)) document.getElementById('th-' + a.id)?.classList.add('is-neg');
@@ -387,11 +428,12 @@ async function viewNegCandidates() {
 
 async function clearAllRefs() {
   if (!activePet) return;
-  if (!confirm(`Remove all reference photos for ${activePet.name} from Pet Tagger? This will not affect Immich.`)) return;
+  const pet = activePet;
+  if (!confirm(`Remove all reference photos for ${pet.name} from Pet Tagger? This will not affect Immich.`)) return;
   try {
-    await api(`/api/pets/${encodeURIComponent(activePet.name)}/refs`, { method: 'DELETE' });
-    refsIds = [];
-    await loadRefs(activePet.name);
+    await api(`/api/pets/${encodeURIComponent(pet.name)}/refs`, { method: 'DELETE' });
+    refsItems = [];
+    await loadRefs(pet.name);
     await refreshState();
     toast('All refs cleared', 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
@@ -495,13 +537,13 @@ function showScanResult(r) {
 async function viewScanLowConf() {
   scanLowConfMode = true;
   taggedMode = false; negCandidateMode = false; borderlineMode = false;
-  selectedIds.clear(); lastClickedId = null;
+  selectedCrops.clear(); lastClickedKey = null;
   const grid = document.getElementById('photoGrid');
   const label = document.getElementById('resultsLabel');
   grid.innerHTML = '<div class="loading" style="grid-column:1/-1">Loading low confidence results…</div>';
   label.textContent = 'Loading…';
   const scanPetBtns = document.getElementById('scanPetBtns');
-  scanPetBtns.innerHTML = pets.map(p => `<button class="btn btn-primary">${p.name}</button>`).join('');
+  scanPetBtns.innerHTML = pets.map(p => `<button class="btn btn-primary" title="Clear, close-up shot, your pet is the only subject.">${p.name}</button>`).join('');
   [...scanPetBtns.children].forEach((btn, i) => { btn.onclick = () => scanAssignSelected(pets[i].name); });
   updateSelUI();
   try {
@@ -516,7 +558,8 @@ async function viewScanLowConf() {
     const negSet = new Set(negIds);
     grid.innerHTML = d.assets.map(a => {
       const cls = a.score < thr ? 'score-low' : 'score-ok';
-      return `<div class="photo-thumb" id="th-${a.id}" onclick="toggleSelect(event, '${a.id}')" title="${fmtDate(a.date)} · ${Math.round(a.score * 100)}% ${a.pet_name}">
+      return `<div class="photo-thumb" id="th-${a.id}" data-asset-id="${a.id}"
+        onclick="toggleSelect(event,'${a.id}')" title="${fmtDate(a.date)} · ${Math.round(a.score * 100)}% ${a.pet_name}">
         <img src="${a.thumb}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg/>'">
         <a class="photo-open" href="${immichUrl}/photos/${a.id}" target="_blank" rel="noopener" onclick="event.stopPropagation()">⤢</a>
         <div class="photo-check">✓</div>
@@ -531,16 +574,25 @@ async function viewScanLowConf() {
 }
 
 async function scanAssignSelected(petName) {
-  if (!selectedIds.size) return;
-  const ids = [...selectedIds];
+  if (!selectedCrops.size) return;
+  const newCrops = [...selectedCrops.values()];
   try {
     const existing = await api(`/api/pets/${encodeURIComponent(petName)}/assets`);
-    const merged = [...new Set([...existing.assets.map(a => a.id), ...ids])];
-    await api(`/api/pets/${encodeURIComponent(petName)}/assets`, { method: 'POST', body: { asset_ids: merged } });
-    ids.forEach(id => { const el = document.getElementById('th-' + id); if (el) { el.classList.remove('selected'); el.classList.add('is-ref'); } });
-    selectedIds.clear(); updateSelUI();
+    const existingCrops = existing.assets.map(a => ({ asset_id: a.id, crop_idx: a.crop_idx, bbox: a.bbox }));
+    const seen = new Set();
+    const merged = [...existingCrops, ...newCrops].filter(c => {
+      const k = c.crop_idx != null ? `${c.asset_id}_${c.crop_idx}` : c.asset_id;
+      if (seen.has(k)) return false;
+      seen.add(k); return true;
+    });
+    await api(`/api/pets/${encodeURIComponent(petName)}/assets`, { method: 'POST', body: { assets: merged } });
+    selectedCrops.forEach((_, key) => {
+      const el = document.getElementById('th-' + key);
+      if (el) { el.classList.remove('selected'); el.classList.add('is-ref'); }
+    });
+    selectedCrops.clear(); updateSelUI();
     await refreshState();
-    toast(`Added ${ids.length} to ${petName}`, 'success');
+    toast(`Added ${newCrops.length} to ${petName}`, 'success');
   } catch(e) { toast(e.message, 'error'); }
 }
 
@@ -614,6 +666,7 @@ function closeEditModal() { document.getElementById('editPetModal').classList.re
 
 async function submitEditPet() {
   if (!_petToEdit) return;
+  const prevActiveName = activePet?.name;
   clearModalError('editPetError');
   const name = document.getElementById('editPetName').value.trim();
   if (!name) { modalError('editPetError', 'Name cannot be empty'); return; }
@@ -628,10 +681,9 @@ async function submitEditPet() {
   try {
     await api(`/api/pets/${encodeURIComponent(_petToEdit)}`, { method: 'PATCH', body: { name, description, since: sinceRaw || null, until: untilRaw || null } });
     closeEditModal();
-    const prevName = activePet?.name;
     activePet = null; clearSearch();
     await loadPets(true);
-    const selectName = prevName === _petToEdit ? name : (prevName || pets[0]?.name);
+    const selectName = prevActiveName === _petToEdit ? name : (prevActiveName || pets[0]?.name);
     if (selectName) await selectPet(selectName);
     toast('Saved', 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
@@ -768,6 +820,7 @@ document.getElementById('importDetailModal').addEventListener('click', function(
 
 (async () => {
   await refreshState();
+  if (!activePet && pets.length > 0) showGuide();
   loadTimestamp();
   loadScanResult();
   api('/api/version').then(async d => {
