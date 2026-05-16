@@ -137,22 +137,18 @@ References are what the classifier learns from. Quality matters more than quanti
 
 1. Select your pet in the sidebar and click **Find references**
 2. Browse the results. They are ranked by visual similarity to your existing refs, or to your description if no refs exist yet.
-3. Select clear, varied photos and click **Add to pet →**
-4. Aim for 10–20 references to start; you can always add more
-
-What to avoid:
-- **Multiple animals in frame**: only one animal is cropped and classified per detection, so the photo might represent the wrong pet
-- **Blurry or dark shots**: poor image quality produces unreliable embeddings
-- **Uncertain ones**: if you're not sure it's your pet, skip it. A few noisy refs hurt more than having fewer refs overall.
+3. Aim for 20–30 to start; results improve up to around 50. For each photo:
+   - **Add to pet**: clear, close-up shot, your pet is the only subject.
+   - **Ignore**: blurry, distant, another person or animal visible alongside your pet, or a look-alike that is not yours. Ignored photos won't appear again.
+   - **Not my pets**: photos that could confuse the classifier. Empty rooms, other species, ambiguous shots. Around 50 is enough.
 
 ### Step 3: Add "not my pets" samples
 
-These help the classifier reject photos that look similar to your pet but aren't, reducing false positives.
+These teach the classifier what not to tag: empty rooms, other animals of a different species, ambiguous shots with no clear subject. Without them, the classifier will tag almost anything.
 
-1. In the **Not my pets** panel (bottom right of the screen), click **Find candidates**
-2. The tool samples random photos from your library, scores them with the classifier, and surfaces the ones most likely to confuse it
-3. Select photos that are not your pet and click **Not my pets**
-4. Aim for roughly 2–3× as many negatives as total references across all pets
+1. In the **Not my pets** panel (bottom right of the screen), click **Find candidates** to automatically surface more photos that might confuse the classifier
+2. Select the relevant ones and click **Not my pets**
+
 
 ### Step 4: Run a test scan
 
@@ -161,7 +157,7 @@ Start with a recent date so the scan covers fewer photos, making it quicker to r
 1. In the **Scan from** panel at the bottom of the sidebar, set a date 1–2 weeks back
 2. Click **Scan** and wait for the results
 3. If **Review N low confidence** appears in the results, click it to see photos the classifier identified as a match but wasn't fully confident about.
-4. Go through them: add correctly identified ones as references, mark wrong ones as **Not my pets**, and skip the rest
+4. Go through them: add correctly identified ones as references, and click **Ignore** on the rest. Ignored photos won't appear in future results.
 
 ### Step 5: Iterate
 
