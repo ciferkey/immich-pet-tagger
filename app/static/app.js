@@ -330,7 +330,7 @@ async function skipSelected() {
     await api('/api/skipped', { method: 'POST', body: { asset_ids: ids } });
     ids.forEach(id => document.querySelectorAll(`[data-asset-id="${id}"]`).forEach(el => el.remove()));
     selectedCrops.clear(); updateSelUI();
-    toast(`Skipped ${ids.length} photo${ids.length !== 1 ? 's' : ''}`, 'success');
+    toast(`Ignored ${ids.length} photo${ids.length !== 1 ? 's' : ''}. Won't appear again.`, 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 
