@@ -570,7 +570,7 @@ async def get_neg_candidates(limit: int = 60):
         resp = await client.post(
             f"{imm.IMMICH_URL}/api/search/random",
             headers=imm.headers(),
-            json={"count": 100, "type": "IMAGE"},
+            json={"count": 50, "type": "IMAGE"},
         )
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
@@ -608,7 +608,7 @@ async def get_neg_candidates(limit: int = 60):
                     v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
                     probs = clf.predict_proba(scaler.transform(v))[0]
                     pet_prob = (1.0 - float(probs[unknown_idx])) if unknown_idx >= 0 else 0.0
-                    if 0.05 <= pet_prob < THRESHOLD:
+                    if 0.30 <= pet_prob < THRESHOLD:
                         scored.append((pet_prob, a))
             scored.sort(key=lambda x: x[0], reverse=True)
             return scored[:limit]
