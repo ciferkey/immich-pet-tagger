@@ -137,7 +137,10 @@ async function removeRef(assetId, cropIdx = null) {
       if (cropIdx != null) return r.crop_idx !== cropIdx;
       return false;
     });
-    await loadRefs(pet.name);
+    const grid = document.getElementById('refsGrid');
+    const scrollTop = grid.scrollTop;
+    renderRefs(refsItems);
+    grid.scrollTop = scrollTop;
     await refreshState();
     toast('Removed');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
@@ -541,7 +544,7 @@ async function viewScanLowConf() {
   grid.innerHTML = '<div class="loading" style="grid-column:1/-1">Loading low confidence results…</div>';
   label.textContent = 'Loading…';
   const scanPetBtns = document.getElementById('scanPetBtns');
-  scanPetBtns.innerHTML = pets.map(p => `<button class="btn btn-primary">${p.name}</button>`).join('');
+  scanPetBtns.innerHTML = pets.map(p => `<button class="btn btn-primary" title="Clear, close-up shot, your pet is the only subject.">${p.name}</button>`).join('');
   [...scanPetBtns.children].forEach((btn, i) => { btn.onclick = () => scanAssignSelected(pets[i].name); });
   updateSelUI();
   try {
