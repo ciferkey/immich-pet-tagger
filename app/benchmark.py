@@ -114,7 +114,7 @@ def main() -> None:
     # --- Negative test set: recent assets that don't contain any pet ---
     print(f"\nFetching candidate assets for negative test set...")
     candidates = fetch_recent_asset_sample(NEG_TEST_SIZE)
-    pet_tagged_ids = {aid for _, name in test_assets for aid in [_]} | ref_id_set
+    test_asset_ids = {aid for aid, _ in test_assets}
     neg_test_ids_set = set(negative_ids) if negative_ids else set()
 
     print(f"  Checking {len(candidates)} candidates for pet faces...")
@@ -127,7 +127,7 @@ def main() -> None:
                 person_ids = future.result()
             except Exception:
                 continue
-            if aid in ref_id_set or aid in neg_test_ids_set:
+            if aid in ref_id_set or aid in neg_test_ids_set or aid in test_asset_ids:
                 continue
             if pet_person_ids.isdisjoint(person_ids):
                 neg_test.append(aid)

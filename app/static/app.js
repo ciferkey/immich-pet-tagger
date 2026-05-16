@@ -383,7 +383,7 @@ async function addSelectedAsNegatives() {
 async function viewNegCandidates() {
   const myGen = ++negGeneration;
   if (negPollTimer) { clearInterval(negPollTimer); negPollTimer = null; }
-  negCandidateMode = true; taggedMode = false;
+  negCandidateMode = true;
   selectedCrops.clear(); lastClickedKey = null; updateSelUI();
   const grid = document.getElementById('photoGrid');
   const label = document.getElementById('resultsLabel');
@@ -536,7 +536,7 @@ function showScanResult(r) {
 
 async function viewScanLowConf() {
   scanLowConfMode = true;
-  taggedMode = false; negCandidateMode = false; borderlineMode = false;
+  negCandidateMode = false; borderlineMode = false;
   selectedCrops.clear(); lastClickedKey = null;
   const grid = document.getElementById('photoGrid');
   const label = document.getElementById('resultsLabel');
@@ -800,7 +800,7 @@ async function submitImportPet() {
     closeImportDetail();
     await refreshState();
     await selectPet(result.name);
-    toast(`Imported ${result.name} with ${result.ref_count} refs`, 'success');
+    toast(result.ref_count > 0 ? `Imported ${result.name} with ${result.ref_count} refs` : `Imported ${result.name} with 0 refs. No animals were detected in the reference photos. Add refs manually.`, result.ref_count > 0 ? 'success' : 'warn');
   } catch(e) { modalError('importDetailError', e.message); }
 }
 
