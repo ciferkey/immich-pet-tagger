@@ -38,7 +38,7 @@ def fetch_tagged_assets(person_id: str) -> list[str]:
         body = r.json()
         block = body.get("assets") or {}
         items = (block.get("items") if isinstance(block, dict) else None) or body.get("items") or []
-        out.extend(a["id"] for a in items if a.get("id"))
+        out.extend(a["id"] for a in items if a.get("id") and a.get("type") == "IMAGE")
         if len(items) < 1000:
             break
         page += 1
@@ -58,7 +58,7 @@ def fetch_recent_asset_sample(n: int) -> list[str]:
         body = r.json()
         block = body.get("assets") or {}
         items = (block.get("items") if isinstance(block, dict) else None) or body.get("items") or []
-        out.extend(a["id"] for a in items if a.get("id"))
+        out.extend(a["id"] for a in items if a.get("id") and a.get("type") == "IMAGE")
         if len(items) < 1000:
             break
         page += 1
@@ -140,15 +140,36 @@ def main() -> None:
     all_work: list[tuple[str, str]] = test_assets + [(aid, "unknown") for aid in neg_test]
     print(f"\nClassifying {len(all_work)} assets ({len(test_assets)} pets, {len(neg_test)} non-pet) with {emb.SCAN_WORKERS} workers...")
 
-    counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    # counts[path][true_name][pred] where path is "yolo" or "fallback"
+    counts: dict[str, dict[str, dict[str, int]]] = {
+        "yolo": defaultdict(lambda: defaultdict(int)),
+        "fallback": defaultdict(lambda: defaultdict(int)),
+    }
     skipped = 0
 
-    def classify_one(aid: str, true_name: str) -> tuple[str, str | None]:
-        vec = emb.embed_asset(aid)
-        if vec is None:
-            return true_name, None
-        pred, _ = clf_mod.classify(vec, names, clf, scaler)
-        return true_name, pred
+    def classify_one(aid: str, true_name: str) -> tuple[str, str | None, str]:
+        img = emb.fetch_thumbnail(aid)
+        if img is None:
+            return true_name, None, "yolo"
+        crops = emb.crop_animals(img)
+        if crops:
+            path = "yolo"
+            vecs = [v for v in (emb.embed_image(crop) for _, crop in crops) if v is not None]
+            if not vecs:
+                return true_name, None, path
+            preds = [clf_mod.classify(v, names, clf, scaler)[0] for v in vecs]
+            # For pet photos: correct if any crop matched. For non-pet: report worst case (any false positive).
+            if true_name != "unknown":
+                pred = true_name if true_name in preds else preds[0]
+            else:
+                pred = next((p for p in preds if p != "unknown"), "unknown")
+        else:
+            path = "fallback"
+            vec = emb.embed_image(img)
+            if vec is None:
+                return true_name, None, path
+            pred, _ = clf_mod.classify(vec, names, clf, scaler)
+        return true_name, pred, path
 
     with ThreadPoolExecutor(max_workers=emb.SCAN_WORKERS) as executor:
         futures = {executor.submit(classify_one, aid, name): (aid, name) for aid, name in all_work}
@@ -158,43 +179,51 @@ def main() -> None:
             if done % 50 == 0:
                 print(f"  {done}/{len(all_work)}")
             try:
-                true_name, pred = future.result()
+                true_name, pred, path = future.result()
                 if pred is None:
                     skipped += 1
                 else:
-                    counts[true_name][pred] += 1
+                    counts[path][true_name][pred] += 1
             except Exception as e:
                 print(f"  error: {e}", file=sys.stderr)
                 skipped += 1
 
-    print("\n--- Recall (pet photos correctly identified) ---")
-    total_correct = 0
-    total_count = 0
-    for true_name in pet_names:
-        preds = counts[true_name]
-        count = sum(preds.values())
-        correct = preds.get(true_name, 0)
-        acc = correct / count * 100 if count else 0.0
-        wrong = {k: v for k, v in preds.items() if k != true_name}
-        wrong_str = f"  misclassified: {wrong}" if wrong else ""
-        print(f"{true_name:20s} {correct:4d}/{count:<4d}  {acc:5.1f}%{wrong_str}")
-        total_correct += correct
-        total_count += count
+    for path_label, path_counts in (("YOLO crop", counts["yolo"]), ("Whole-image fallback", counts["fallback"])):
+        total_in_path = sum(sum(p.values()) for p in path_counts.values())
+        if not total_in_path:
+            continue
 
-    overall_recall = total_correct / total_count * 100 if total_count else 0.0
-    print(f"\n{'Overall recall':20s} {total_correct:4d}/{total_count:<4d}  {overall_recall:.1f}%")
+        print(f"\n--- Recall [{path_label}] ---")
+        total_correct = 0
+        total_count = 0
+        for true_name in pet_names:
+            preds = path_counts[true_name]
+            count = sum(preds.values())
+            if not count:
+                continue
+            correct = preds.get(true_name, 0)
+            acc = correct / count * 100
+            wrong = {k: v for k, v in preds.items() if k != true_name}
+            wrong_str = f"  misclassified: {wrong}" if wrong else ""
+            print(f"{true_name:20s} {correct:4d}/{count:<4d}  {acc:5.1f}%{wrong_str}")
+            total_correct += correct
+            total_count += count
 
-    if neg_test:
-        neg_preds = counts["unknown"]
+        if total_count:
+            overall_recall = total_correct / total_count * 100
+            print(f"\n{'Overall recall':20s} {total_correct:4d}/{total_count:<4d}  {overall_recall:.1f}%")
+
+        neg_preds = path_counts["unknown"]
         neg_count = sum(neg_preds.values())
-        neg_correct = neg_preds.get("unknown", 0)
-        false_positives = {k: v for k, v in neg_preds.items() if k != "unknown"}
-        fp_count = sum(false_positives.values())
-        fp_rate = fp_count / neg_count * 100 if neg_count else 0.0
-        print(f"\n--- Precision (non-pet photos NOT tagged as a pet) ---")
-        print(f"{'Non-pet assets':20s} {neg_correct:4d}/{neg_count:<4d}  correctly unknown  FP rate: {fp_rate:.1f}%")
-        if false_positives:
-            print(f"  false positives: {false_positives}")
+        if neg_count:
+            neg_correct = neg_preds.get("unknown", 0)
+            false_positives = {k: v for k, v in neg_preds.items() if k != "unknown"}
+            fp_count = sum(false_positives.values())
+            fp_rate = fp_count / neg_count * 100
+            print(f"\n--- Precision [{path_label}] ---")
+            print(f"{'Non-pet assets':20s} {neg_correct:4d}/{neg_count:<4d}  correctly unknown  FP rate: {fp_rate:.1f}%")
+            if false_positives:
+                print(f"  false positives: {false_positives}")
 
     if skipped:
         print(f"\n({skipped} assets skipped: no thumbnail or embedding failed)")
