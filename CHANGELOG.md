@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.3.2
+
+### Fixes
+- Manual scans now use EXIF date for the date picker, matching what users see in the Immich library. The background poller continues using upload time to avoid skipping late-synced photos.
+
+---
+
 ## v1.3.1
 
 ### Fixes

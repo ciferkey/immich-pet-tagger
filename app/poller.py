@@ -90,8 +90,8 @@ def migrate_ref_bboxes(data_dir: Path) -> None:
 # Main poll cycle
 # ---------------------------------------------------------------------------
 
-def run_poll_cycle(data_dir: str, on_date=None, cancel=None, low_conf_out=None, live_counts: dict | None = None) -> None:
-    log.info(f"Poll cycle | threshold={THRESHOLD}")
+def run_poll_cycle(data_dir: str, on_date=None, cancel=None, low_conf_out=None, live_counts: dict | None = None, manual: bool = False) -> None:
+    log.info(f"Poll cycle | threshold={THRESHOLD} manual={manual}")
     dd = Path(data_dir)
     now = datetime.now(timezone.utc).isoformat()
     data.write_poll_status(dd, {"status": "running", "started_at": now})
@@ -100,7 +100,7 @@ def run_poll_cycle(data_dir: str, on_date=None, cancel=None, low_conf_out=None, 
     for k in ("added", "low_confidence", "unknown", "out_of_range", "already_tagged", "failed", "no_thumb"):
         counts[k] = 0
     try:
-        _run_poll_cycle(dd, counts, on_date, cancel, low_conf_out)
+        _run_poll_cycle(dd, counts, on_date, cancel, low_conf_out, manual)
     except Exception as e:
         data.write_poll_status(dd, {"status": "error", "ran_at": datetime.now(timezone.utc).isoformat(), "error": str(e), "counts": counts})
         raise
@@ -108,7 +108,7 @@ def run_poll_cycle(data_dir: str, on_date=None, cancel=None, low_conf_out=None, 
         data.write_poll_status(dd, {"status": "idle", "ran_at": datetime.now(timezone.utc).isoformat(), "counts": counts})
 
 
-def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_out=None) -> None:
+def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_out=None, manual: bool = False) -> None:
     config = data.load_config(dd)
     if not config:
         log.warning("config.json empty or missing, no pets configured yet.")
@@ -142,12 +142,13 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
     log.info(f"Fetching assets taken after: {last_ts}")
 
     t0 = time.time()
-    assets = imm.fetch_assets_created_after(last_ts)
+    assets = imm.fetch_assets_taken_after(last_ts) if manual else imm.fetch_assets_created_after(last_ts)
     log.info(f"Fetched {len(assets)} assets in {time.time()-t0:.1f}s")
 
     if not assets:
         log.info("No new assets.")
-        data.save_last_timestamp(datetime.now(timezone.utc).isoformat(), dd)
+        if not manual:
+            data.save_last_timestamp(datetime.now(timezone.utc).isoformat(), dd)
         return
 
     latest_ts = max((ts for _, ts in assets), default=last_ts)
@@ -256,5 +257,6 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
         f"counts={counts}"
     )
 
-    data.save_last_timestamp(latest_ts, dd)
-    log.info(f"Saved timestamp: {latest_ts}")
+    if not manual:
+        data.save_last_timestamp(latest_ts, dd)
+        log.info(f"Saved timestamp: {latest_ts}")
