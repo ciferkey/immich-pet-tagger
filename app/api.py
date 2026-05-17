@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import shutil
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
@@ -724,6 +725,8 @@ async def set_timestamp(body: TimestampBody):
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.date):
         raise HTTPException(status_code=400, detail="Date must be YYYY-MM-DD")
     ts = body.date + "T00:00:00.000Z"
+    now = datetime.now(timezone.utc).isoformat()
+    ts = min(ts, now)
     data.save_last_timestamp(ts, DATA_DIR)
     log.info(f"Scan timestamp reset to {ts}")
     return {"timestamp": ts}
@@ -742,7 +745,6 @@ async def trigger_scan():
 async def _run_manual_scan(generation: int):
     import state
     from poller import run_poll_cycle
-    from datetime import datetime, timezone
     live_counts: dict = {}
     state.manual_scan_result = {"status": "running", "started_at": datetime.now(timezone.utc).isoformat(), "counts": live_counts}
     state.scan_low_conf_assets = []
