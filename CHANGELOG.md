@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.3.1
+
+### Fixes
+- CPU image reduced from ~12.7 GB to ~2.4 GB. The default build was silently pulling the CUDA torch wheel from PyPI instead of the CPU-only wheel.
+- Switched to a multi-stage Docker build with a virtual environment, eliminating ghost install layers that kept deleted packages on disk.
+- Removed triton (545 MB, only needed for `torch.compile()`) from all images.
+- Fixed a duplicate opencv library left behind by the previous `--force-reinstall` approach.
+
+---
+
 ## v1.3.0
 
 ### Crop-centric references
