@@ -854,7 +854,7 @@ async def animal_crop(asset_id: str, bbox: str | None = None):
                 crop.save(buf, "JPEG", quality=85)
                 buf.seek(0)
                 return StreamingResponse(buf, media_type="image/jpeg")
-        except (ValueError, Exception):
+        except Exception:
             pass
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.get(f"{imm.IMMICH_URL}/api/assets/{asset_id}/thumbnail?size=preview", headers=imm.headers())

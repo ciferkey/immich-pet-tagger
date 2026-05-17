@@ -186,6 +186,11 @@ def get_crops_and_embed(asset_id: str) -> list[tuple[dict, np.ndarray]]:
 
 def embed_crop_by_bbox(asset_id: str, bbox: list) -> np.ndarray | None:
     """Embed a specific crop by normalized bounding box. Used for crop-centric refs."""
+    cached = _embed_cache.get(asset_id)
+    if cached is not None:
+        vecs = cached if isinstance(cached, list) else [cached]
+        if len(vecs) == 1:
+            return vecs[0]
     img = fetch_thumbnail(asset_id)
     if img is None:
         return None
@@ -217,15 +222,6 @@ def _save_embed_cache() -> None:
         tmp.replace(_cache_path)
     except Exception as e:
         log.warning(f"Could not save embedding cache: {e}")
-
-
-def get_animal_crop(asset_id: str) -> Image.Image | None:
-    """Return the first YOLO crop for an asset. Returns None if no animal detected."""
-    img = fetch_thumbnail(asset_id)
-    if img is None:
-        return None
-    crops = crop_animals(img)
-    return crops[0][1] if crops else None
 
 
 def embed_asset_crops(asset_id: str, require_animal: bool = False) -> list[np.ndarray]:
