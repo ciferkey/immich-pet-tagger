@@ -145,6 +145,11 @@ def main() -> None:
         "yolo": defaultdict(lambda: defaultdict(int)),
         "fallback": defaultdict(lambda: defaultdict(int)),
     }
+    # failures[path][true_name] = list of (asset_id, predicted)
+    failures: dict[str, dict[str, list[tuple[str, str]]]] = {
+        "yolo": defaultdict(list),
+        "fallback": defaultdict(list),
+    }
     skipped = 0
 
     def classify_one(aid: str, true_name: str) -> tuple[str, str | None, str]:
@@ -178,12 +183,17 @@ def main() -> None:
             done += 1
             if done % 50 == 0:
                 print(f"  {done}/{len(all_work)}")
+            f_aid, f_name = futures[future]
             try:
                 true_name, pred, path = future.result()
                 if pred is None:
                     skipped += 1
                 else:
                     counts[path][true_name][pred] += 1
+                    if true_name != "unknown" and pred != true_name:
+                        failures[path][true_name].append((f_aid, pred))
+                    elif true_name == "unknown" and pred != "unknown":
+                        failures[path]["__fp__"].append((f_aid, pred))
             except Exception as e:
                 print(f"  error: {e}", file=sys.stderr)
                 skipped += 1
@@ -224,6 +234,15 @@ def main() -> None:
             print(f"{'Non-pet assets':20s} {neg_correct:4d}/{neg_count:<4d}  correctly unknown  FP rate: {fp_rate:.1f}%")
             if false_positives:
                 print(f"  false positives: {false_positives}")
+
+    print("\n--- Failed asset IDs ---")
+    for path_label, path_key in (("YOLO crop", "yolo"), ("Whole-image fallback", "fallback")):
+        for true_name, fails in failures[path_key].items():
+            if fails:
+                label = "false positives (non-pet)" if true_name == "__fp__" else f"{true_name} misclassified"
+                print(f"\n[{path_label}] {label}:")
+                for aid, pred in fails:
+                    print(f"  {aid}  -> {pred}")
 
     if skipped:
         print(f"\n({skipped} assets skipped: no thumbnail or embedding failed)")
