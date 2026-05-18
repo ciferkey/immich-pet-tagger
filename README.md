@@ -140,14 +140,14 @@ References are what the classifier learns from. Quality matters more than quanti
 3. Aim for 20–30 to start; results improve up to around 50. For each photo:
    - **Add to pet**: clear, close-up shot, your pet is the only subject.
    - **Ignore**: blurry, distant, another person or animal visible alongside your pet, or a look-alike that is not yours. Ignored photos won't appear again.
-   - **Not my pets**: photos that could confuse the classifier. Empty rooms, other species, ambiguous shots. Around 50 is enough.
+   - **Not a pet**: photos that could confuse the classifier. Empty rooms, other species, ambiguous shots. Around 50 is enough.
 
-### Step 3: Add "not my pets" samples
+### Step 3: Add "not a pet" samples
 
 These teach the classifier what not to tag: empty rooms, other animals of a different species, ambiguous shots with no clear subject. Without them, the classifier will tag almost anything.
 
-1. In the **Not my pets** panel (bottom right of the screen), click **Find candidates** to automatically surface more photos that might confuse the classifier
-2. Select the relevant ones and click **Not my pets**
+1. In the **Not a pet** panel (bottom right of the screen), click **Find candidates** to automatically surface more photos that might confuse the classifier
+2. Select the relevant ones and click **Not a pet**
 
 
 ### Step 4: Run a test scan

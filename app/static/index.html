@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Immich Pet Tagger</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v=2">
 </head>
 <body>
 <div class="shell">
@@ -21,10 +21,13 @@
     <button class="add-pet-btn" style="margin-bottom:8px;" onclick="openImportPet()">↓ Import from Immich</button>
     <div class="sidebar-bottom">
       <div class="scan-panel">
-        <label>Scan from</label>
+        <div class="scan-dates">
+          <span>From</span><input type="date" id="scanDate">
+          <span>Until</span><input type="date" id="scanUntil">
+        </div>
         <div class="scan-row">
-          <input type="date" id="scanDate">
-          <button class="btn" style="font-size:11px; padding:5px 10px;" onclick="applyTimestamp()">Scan</button>
+          <button class="btn" style="font-size:11px; padding:5px 10px; flex:1;" onclick="applyTimestamp()">Scan</button>
+          <button class="btn btn-danger" id="stopScanBtn" style="font-size:11px; padding:5px 10px; display:none;" onclick="stopScan()">Stop</button>
         </div>
       </div>
       <div id="scanResult" style="display:none"></div>
@@ -39,7 +42,7 @@
             <span id="selCount" style="font-size:12px; color:var(--text3);"></span>
             <button class="btn btn-primary" id="assignBtn" onclick="assignSelected()" style="display:none" title="Clear, close-up shot, your pet is the only subject.">Add to pet</button>
             <button class="btn" id="skipBtn" onclick="skipSelected()" style="display:none" title="Blurry, distant, another person or animal visible alongside your pet, or a look-alike that is not yours. Ignored photos won't appear again.">Ignore</button>
-            <button class="btn btn-danger" id="addNegBtn" onclick="addSelectedAsNegatives()" style="display:none" title="Photos that could confuse the classifier. Empty rooms, other species, ambiguous shots. Around 50 is enough.">Not my pets</button>
+            <button class="btn btn-danger" id="addNegBtn" onclick="addSelectedAsNegatives()" style="display:none" title="Photos that could confuse the classifier. Empty rooms, other species, ambiguous shots. Around 50 is enough.">Not a pet</button>
             <div id="scanPetBtns" style="display:none; gap:4px; flex-wrap:wrap;"></div>
           </div>
         </div>
@@ -60,7 +63,7 @@
         </div>
         <div class="neg-panel">
           <div class="neg-header">
-            <span style="font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--text3);">Not my pets <span style="font-weight:400;" id="negCount">0</span></span>
+            <span style="font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--text3);">Not a pet <span style="font-weight:400;" id="negCount">0</span></span>
             <div style="display:flex; gap:6px; align-items:center;">
               <button class="btn" id="findNegsBtn" onclick="viewNegCandidates()" style="font-size:12px; padding:5px 10px;">Find candidates</button>
               <button class="btn btn-danger" id="clearNegsBtn" onclick="clearAllNegatives()" style="display:none; font-size:12px; padding:5px 10px;">Clear all</button>
@@ -195,6 +198,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=2"></script>
 </body>
 </html>

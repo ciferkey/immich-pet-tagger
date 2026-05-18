@@ -67,8 +67,8 @@ function showGuide() {
   document.getElementById('photoGrid').innerHTML = `<div class="guide" style="grid-column:1/-1">
     <div class="guide-steps">
       <div class="guide-step"><div class="guide-step-num">1</div><div class="guide-step-body"><div class="guide-step-title">Add your pet</div><div class="guide-step-desc">Click <strong>↓ Import from Immich</strong> if Immich already recognizes your pet as a person. Otherwise click <strong>+ Add pet</strong> to start from scratch.</div></div></div>
-      <div class="guide-step"><div class="guide-step-num">2</div><div class="guide-step-body"><div class="guide-step-title">Find reference photos</div><div class="guide-step-desc">Select your pet and click <strong>Find references</strong>. Aim for 20–30 to start; results improve up to around 50.<ul style="margin:6px 0 0 16px;padding:0;"><li><strong>Add to pet</strong>: clear, close-up shot, your pet is the only subject.</li><li><strong>Ignore</strong>: blurry, distant, another person or animal visible alongside your pet, or a look-alike that is not yours. Ignored photos won't appear again.</li><li><strong>Not my pets</strong>: photos that could confuse the classifier. Empty rooms, other species, ambiguous shots. Around 50 is enough.</li></ul></div></div></div>
-      <div class="guide-step"><div class="guide-step-num">3</div><div class="guide-step-body"><div class="guide-step-title">Add "not my pets" samples</div><div class="guide-step-desc">These teach the classifier what not to tag: empty rooms, other animals of a different species, ambiguous shots with no clear subject. Without them, the classifier will tag almost anything. In the <strong>Not my pets</strong> panel, click <strong>Find candidates</strong> to automatically surface more photos that might confuse the classifier.</div></div></div>
+      <div class="guide-step"><div class="guide-step-num">2</div><div class="guide-step-body"><div class="guide-step-title">Find reference photos</div><div class="guide-step-desc">Select your pet and click <strong>Find references</strong>. Aim for 20–30 to start; results improve up to around 50.<ul style="margin:6px 0 0 16px;padding:0;"><li><strong>Add to pet</strong>: clear, close-up shot, your pet is the only subject.</li><li><strong>Ignore</strong>: blurry, distant, another person or animal visible alongside your pet, or a look-alike that is not yours. Ignored photos won't appear again.</li><li><strong>Not a pet</strong>: photos that could confuse the classifier. Empty rooms, other species, ambiguous shots. Around 50 is enough.</li></ul></div></div></div>
+      <div class="guide-step"><div class="guide-step-num">3</div><div class="guide-step-body"><div class="guide-step-title">Add "not a pet" samples</div><div class="guide-step-desc">These teach the classifier what not to tag: empty rooms, other animals of a different species, ambiguous shots with no clear subject. Without them, the classifier will tag almost anything. In the <strong>Not a pet</strong> panel, click <strong>Find candidates</strong> to automatically surface more photos that might confuse the classifier.</div></div></div>
       <div class="guide-step"><div class="guide-step-num">4</div><div class="guide-step-body"><div class="guide-step-title">Run a test scan</div><div class="guide-step-desc">Set the <strong>Scan from</strong> date 1–2 weeks back and click <strong>Scan</strong>. Review low confidence results: add correct ones as refs, and click <strong>Ignore</strong> on the rest. Ignored photos won't appear again.</div></div></div>
       <div class="guide-step"><div class="guide-step-num">5</div><div class="guide-step-body"><div class="guide-step-title">Iterate</div><div class="guide-step-desc">Repeat steps 2–4 a couple of times. Results typically stabilize after 2–3 rounds.</div></div></div>
       <div class="guide-step"><div class="guide-step-num">6</div><div class="guide-step-body"><div class="guide-step-title">Run the full backfill</div><div class="guide-step-desc">Once happy with accuracy, set the scan date to when you got your pet and run the full scan. After that, new photos are tagged automatically every 5 minutes.</div></div></div>
@@ -496,11 +496,13 @@ async function loadScanResult() {
 
 function showScanResult(r) {
   const el = document.getElementById('scanResult');
-  if (!r || r.status === 'none') { el.style.display = 'none'; return; }
+  const stopBtn = document.getElementById('stopScanBtn');
+  if (!r || r.status === 'none') { el.style.display = 'none'; stopBtn.style.display = 'none'; return; }
   el.className = 'scan-result';
   el.style.display = '';
   const stat = (label, val, cls) => `<div class="poll-stat"><span class="poll-stat-label">${label}</span><span class="poll-stat-val ${val > 0 ? cls : ''}">${val}</span></div>`;
   if (r.status === 'running') {
+    stopBtn.style.display = '';
     const dateStr = r.current_date ? new Date(r.current_date + 'T00:00:00').toLocaleDateString() : '';
     const c = r.counts || {};
     el.innerHTML = '<div class="scan-result-header">Scanning…</div>' +
@@ -512,6 +514,11 @@ function showScanResult(r) {
       stat('Already tagged', c.already_tagged || 0, '') +
       (c.failed > 0 ? stat('Failed', c.failed, 'nonzero-bad') : '') +
       '</div>';
+    return;
+  }
+  stopBtn.style.display = 'none';
+  if (r.status === 'stopped') {
+    el.innerHTML = '<div class="scan-result-header">Scan stopped</div>';
     return;
   }
   if (r.status === 'error') {
@@ -599,9 +606,10 @@ async function scanAssignSelected(petName) {
 async function applyTimestamp() {
   const val = document.getElementById('scanDate').value;
   if (!val) { toast('Pick a date first', 'error'); return; }
+  const untilVal = document.getElementById('scanUntil').value || null;
   try {
     await api('/api/timestamp', { method: 'POST', body: { date: val } });
-    await api('/api/scan', { method: 'POST' });
+    await api('/api/scan', { method: 'POST', body: { scan_until: untilVal } });
     showScanResult({ status: 'running' });
     const iv = setInterval(async () => {
       try {
@@ -610,6 +618,15 @@ async function applyTimestamp() {
         if (r.status !== 'running') { clearInterval(iv); }
       } catch(_) {}
     }, 2000);
+  } catch(e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function stopScan() {
+  try {
+    await api('/api/scan/stop', { method: 'POST' });
+    showScanResult({ status: 'stopped' });
   } catch(e) {
     toast(e.message, 'error');
   }

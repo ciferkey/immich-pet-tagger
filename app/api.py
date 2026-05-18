@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import shutil
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional
@@ -724,25 +725,40 @@ async def set_timestamp(body: TimestampBody):
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", body.date):
         raise HTTPException(status_code=400, detail="Date must be YYYY-MM-DD")
     ts = body.date + "T00:00:00.000Z"
+    now = datetime.now(timezone.utc).isoformat()
+    ts = min(ts, now)
     data.save_last_timestamp(ts, DATA_DIR)
     log.info(f"Scan timestamp reset to {ts}")
     return {"timestamp": ts}
 
 
+class ScanRequest(BaseModel):
+    scan_until: Optional[str] = None
+
+
 @router.post("/scan")
-async def trigger_scan():
+async def trigger_scan(body: ScanRequest = ScanRequest()):
     import state
     if state.scan_lock is not None and state.scan_lock.locked():
         state.scan_cancel.set()
     state.scan_generation += 1
-    asyncio.create_task(_run_manual_scan(state.scan_generation))
+    asyncio.create_task(_run_manual_scan(state.scan_generation, body.scan_until))
     return {"status": "started"}
 
 
-async def _run_manual_scan(generation: int):
+@router.post("/scan/stop")
+async def stop_scan():
+    import state
+    if state.scan_lock is not None and state.scan_lock.locked():
+        state.scan_cancel.set()
+        state.scan_generation += 1
+        state.manual_scan_result = {"status": "stopped", "ran_at": datetime.now(timezone.utc).isoformat()}
+    return {"status": "stopped"}
+
+
+async def _run_manual_scan(generation: int, scan_until: str | None = None):
     import state
     from poller import run_poll_cycle
-    from datetime import datetime, timezone
     live_counts: dict = {}
     state.manual_scan_result = {"status": "running", "started_at": datetime.now(timezone.utc).isoformat(), "counts": live_counts}
     state.scan_low_conf_assets = []
@@ -757,7 +773,7 @@ async def _run_manual_scan(generation: int):
             if state.scan_generation != generation:
                 return
             state.scan_cancel.clear()
-            await asyncio.to_thread(run_poll_cycle, DATA_DIR, on_date, state.scan_cancel, low_conf_assets, live_counts, True)
+            await asyncio.to_thread(run_poll_cycle, DATA_DIR, on_date, state.scan_cancel, low_conf_assets, live_counts, True, scan_until)
             if state.scan_generation == generation:
                 state.scan_low_conf_assets = low_conf_assets
                 state.manual_scan_result = data.load_poll_status(DATA_DIR)
@@ -771,7 +787,7 @@ async def get_scan_result():
     result = state.manual_scan_result
     if not result:
         return {"status": "none"}
-    skipped = set(data.load_skipped_ids(DATA_DIR))
+    skipped = set(data.load_skipped_ids(DATA_DIR)) | set(data.load_negative_ids(DATA_DIR))
     filtered_count = len({a["asset_id"] for a in (state.scan_low_conf_assets or []) if a["asset_id"] not in skipped})
     counts = {**result.get("counts", {}), "low_confidence": filtered_count}
     return {**result, "counts": counts}
@@ -781,7 +797,7 @@ async def get_scan_result():
 async def get_scan_low_confidence():
     from poller import THRESHOLD
     config = data.load_config(DATA_DIR)
-    skipped = set(data.load_skipped_ids(DATA_DIR))
+    skipped = set(data.load_skipped_ids(DATA_DIR)) | set(data.load_negative_ids(DATA_DIR))
     seen: dict = {}
     for a in (state.scan_low_conf_assets or []):
         aid = a["asset_id"]
