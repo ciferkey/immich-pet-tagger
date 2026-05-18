@@ -787,7 +787,7 @@ async def get_scan_result():
     result = state.manual_scan_result
     if not result:
         return {"status": "none"}
-    skipped = set(data.load_skipped_ids(DATA_DIR))
+    skipped = set(data.load_skipped_ids(DATA_DIR)) | set(data.load_negative_ids(DATA_DIR))
     filtered_count = len({a["asset_id"] for a in (state.scan_low_conf_assets or []) if a["asset_id"] not in skipped})
     counts = {**result.get("counts", {}), "low_confidence": filtered_count}
     return {**result, "counts": counts}
@@ -797,7 +797,7 @@ async def get_scan_result():
 async def get_scan_low_confidence():
     from poller import THRESHOLD
     config = data.load_config(DATA_DIR)
-    skipped = set(data.load_skipped_ids(DATA_DIR))
+    skipped = set(data.load_skipped_ids(DATA_DIR)) | set(data.load_negative_ids(DATA_DIR))
     seen: dict = {}
     for a in (state.scan_low_conf_assets or []):
         aid = a["asset_id"]
