@@ -205,8 +205,6 @@ The default setup runs on CPU and requires no extra configuration. A GPU makes s
 image: ghcr.io/tedornitier/immich-pet-tagger:latest
 ```
 
-The published image works on Maxwell, Pascal, Volta, Turing, Ampere, Ada Lovelace, and Hopper GPUs (compute capability 5.0–9.0, e.g. GTX 9xx/10xx, RTX 20xx/30xx/40xx, Tesla P/V/A/H100). Blackwell (RTX 50xx) is not covered by the default image; build from source with a newer CUDA wheel if needed.
-
 **AMD GPU:** install ROCm drivers, then in `docker-compose.yml`:
 1. Change the image tag to `:rocm`
 2. Uncomment the `deploy:` section and change the driver to `amdgpu`
