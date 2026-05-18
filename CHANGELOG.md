@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.3.3
+
+### Features
+- Scan panel now accepts an optional end date, limiting the scan to a specific date range.
+- New Stop button appears during a scan and cancels it immediately.
+
+### Fixes
+- Photos marked as "Not a pet" are now excluded from the low confidence review panel.
+- Renamed "Not my pets" to "Not a pet" to avoid the misleading implication that it means "another pet".
+- Manual scan start date is now capped at the current time, preventing a future date from stalling the poller after the scan completes.
+
+---
+
 ## v1.3.2
 
 ### Fixes
