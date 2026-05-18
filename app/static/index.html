@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Immich Pet Tagger</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v=2">
 </head>
 <body>
 <div class="shell">
@@ -21,10 +21,13 @@
     <button class="add-pet-btn" style="margin-bottom:8px;" onclick="openImportPet()">↓ Import from Immich</button>
     <div class="sidebar-bottom">
       <div class="scan-panel">
-        <label>Scan from</label>
+        <div class="scan-dates">
+          <span>From</span><input type="date" id="scanDate">
+          <span>Until</span><input type="date" id="scanUntil">
+        </div>
         <div class="scan-row">
-          <input type="date" id="scanDate">
-          <button class="btn" style="font-size:11px; padding:5px 10px;" onclick="applyTimestamp()">Scan</button>
+          <button class="btn" style="font-size:11px; padding:5px 10px; flex:1;" onclick="applyTimestamp()">Scan</button>
+          <button class="btn btn-danger" id="stopScanBtn" style="font-size:11px; padding:5px 10px; display:none;" onclick="stopScan()">Stop</button>
         </div>
       </div>
       <div id="scanResult" style="display:none"></div>
@@ -195,6 +198,6 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=2"></script>
 </body>
 </html>

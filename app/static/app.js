@@ -496,11 +496,13 @@ async function loadScanResult() {
 
 function showScanResult(r) {
   const el = document.getElementById('scanResult');
-  if (!r || r.status === 'none') { el.style.display = 'none'; return; }
+  const stopBtn = document.getElementById('stopScanBtn');
+  if (!r || r.status === 'none') { el.style.display = 'none'; stopBtn.style.display = 'none'; return; }
   el.className = 'scan-result';
   el.style.display = '';
   const stat = (label, val, cls) => `<div class="poll-stat"><span class="poll-stat-label">${label}</span><span class="poll-stat-val ${val > 0 ? cls : ''}">${val}</span></div>`;
   if (r.status === 'running') {
+    stopBtn.style.display = '';
     const dateStr = r.current_date ? new Date(r.current_date + 'T00:00:00').toLocaleDateString() : '';
     const c = r.counts || {};
     el.innerHTML = '<div class="scan-result-header">Scanning…</div>' +
@@ -512,6 +514,11 @@ function showScanResult(r) {
       stat('Already tagged', c.already_tagged || 0, '') +
       (c.failed > 0 ? stat('Failed', c.failed, 'nonzero-bad') : '') +
       '</div>';
+    return;
+  }
+  stopBtn.style.display = 'none';
+  if (r.status === 'stopped') {
+    el.innerHTML = '<div class="scan-result-header">Scan stopped</div>';
     return;
   }
   if (r.status === 'error') {
@@ -599,9 +606,10 @@ async function scanAssignSelected(petName) {
 async function applyTimestamp() {
   const val = document.getElementById('scanDate').value;
   if (!val) { toast('Pick a date first', 'error'); return; }
+  const untilVal = document.getElementById('scanUntil').value || null;
   try {
     await api('/api/timestamp', { method: 'POST', body: { date: val } });
-    await api('/api/scan', { method: 'POST' });
+    await api('/api/scan', { method: 'POST', body: { scan_until: untilVal } });
     showScanResult({ status: 'running' });
     const iv = setInterval(async () => {
       try {
@@ -610,6 +618,15 @@ async function applyTimestamp() {
         if (r.status !== 'running') { clearInterval(iv); }
       } catch(_) {}
     }, 2000);
+  } catch(e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function stopScan() {
+  try {
+    await api('/api/scan/stop', { method: 'POST' });
+    showScanResult({ status: 'stopped' });
   } catch(e) {
     toast(e.message, 'error');
   }

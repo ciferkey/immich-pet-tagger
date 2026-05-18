@@ -732,17 +732,31 @@ async def set_timestamp(body: TimestampBody):
     return {"timestamp": ts}
 
 
+class ScanRequest(BaseModel):
+    scan_until: Optional[str] = None
+
+
 @router.post("/scan")
-async def trigger_scan():
+async def trigger_scan(body: ScanRequest = ScanRequest()):
     import state
     if state.scan_lock is not None and state.scan_lock.locked():
         state.scan_cancel.set()
     state.scan_generation += 1
-    asyncio.create_task(_run_manual_scan(state.scan_generation))
+    asyncio.create_task(_run_manual_scan(state.scan_generation, body.scan_until))
     return {"status": "started"}
 
 
-async def _run_manual_scan(generation: int):
+@router.post("/scan/stop")
+async def stop_scan():
+    import state
+    if state.scan_lock is not None and state.scan_lock.locked():
+        state.scan_cancel.set()
+        state.scan_generation += 1
+        state.manual_scan_result = {"status": "stopped", "ran_at": datetime.now(timezone.utc).isoformat()}
+    return {"status": "stopped"}
+
+
+async def _run_manual_scan(generation: int, scan_until: str | None = None):
     import state
     from poller import run_poll_cycle
     live_counts: dict = {}
@@ -759,7 +773,7 @@ async def _run_manual_scan(generation: int):
             if state.scan_generation != generation:
                 return
             state.scan_cancel.clear()
-            await asyncio.to_thread(run_poll_cycle, DATA_DIR, on_date, state.scan_cancel, low_conf_assets, live_counts, True)
+            await asyncio.to_thread(run_poll_cycle, DATA_DIR, on_date, state.scan_cancel, low_conf_assets, live_counts, True, scan_until)
             if state.scan_generation == generation:
                 state.scan_low_conf_assets = low_conf_assets
                 state.manual_scan_result = data.load_poll_status(DATA_DIR)

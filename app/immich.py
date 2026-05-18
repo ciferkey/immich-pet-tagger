@@ -29,10 +29,13 @@ def fetch_assets_created_after(created_after_iso: str) -> list[tuple[str, str]]:
     return _fetch_assets({"createdAfter": created_after_iso}, ts_field="createdAt", label="fetch_assets_created_after")
 
 
-def fetch_assets_taken_after(taken_after_iso: str) -> list[tuple[str, str]]:
+def fetch_assets_taken_after(taken_after_iso: str, taken_before_iso: str | None = None) -> list[tuple[str, str]]:
     """Return [(asset_id, fileCreatedAt_iso), ...] for manual scans.
     Uses takenAfter (EXIF date) so the date picker matches what the user sees in the Immich library."""
-    return _fetch_assets({"takenAfter": taken_after_iso}, ts_field="fileCreatedAt", label="fetch_assets_taken_after")
+    query: dict = {"takenAfter": taken_after_iso}
+    if taken_before_iso:
+        query["takenBefore"] = taken_before_iso
+    return _fetch_assets(query, ts_field="fileCreatedAt", label="fetch_assets_taken_after")
 
 
 def _fetch_assets(query: dict, ts_field: str, label: str) -> list[tuple[str, str]]:
