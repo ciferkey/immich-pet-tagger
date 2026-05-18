@@ -3,17 +3,26 @@
 FROM python:3.12-slim AS builder
 
 # GPU support:
-#   NVIDIA: set CUDA=true
+#   NVIDIA (default, Turing+ incl. Blackwell):       set CUDA=true
+#   NVIDIA legacy (Maxwell/Pascal/Volta, no Blackwell): set CUDA=true and CUDA_LEGACY=true
 #   AMD:    set ROCM=true  (requires ROCm drivers on the host)
-#   None:   leave both false (CPU-only, slow but works)
+#   None:   leave all false (CPU-only, slow but works)
 ARG CUDA=false
+ARG CUDA_LEGACY=false
 ARG ROCM=false
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Install torch first so it gets its own cached layer.
-RUN if [ "$CUDA" = "true" ]; then \
+# cu128 wheels (default) drop sm_50/60/70 to fit PyPI size limits; cu126 wheels keep
+# Maxwell through Hopper but lack Blackwell (sm_100/120). See pytorch/pytorch#145544.
+RUN if [ "$CUDA" = "true" ] && [ "$CUDA_LEGACY" = "true" ]; then \
+      pip install --no-cache-dir \
+        torch==2.7.0+cu126 \
+        torchvision==0.22.0+cu126 \
+        --extra-index-url https://download.pytorch.org/whl/cu126; \
+    elif [ "$CUDA" = "true" ]; then \
       pip install --no-cache-dir \
         torch==2.7.0+cu128 \
         torchvision==0.22.0+cu128 \

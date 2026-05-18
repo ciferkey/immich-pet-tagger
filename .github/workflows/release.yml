@@ -62,6 +62,12 @@ jobs:
             build_arg: CUDA=true
             stable_tag: latest
             free_disk: true
+          - variant: cuda-legacy
+            build_arg: |
+              CUDA=true
+              CUDA_LEGACY=true
+            stable_tag: cuda-legacy
+            free_disk: true
           - variant: rocm
             build_arg: ROCM=true
             stable_tag: rocm

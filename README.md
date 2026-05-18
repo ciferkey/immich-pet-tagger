@@ -192,18 +192,28 @@ After that, the background poller runs every 5 minutes and tags new photos autom
 
 ## GPU support
 
-The default setup runs on CPU and requires no extra configuration. A GPU makes scans significantly faster but requires additional setup. Pre-built images are published for all three variants.
+The default setup runs on CPU and requires no extra configuration. A GPU makes scans significantly faster but requires additional setup. Pre-built images are published for CPU, NVIDIA (default and legacy), and AMD/ROCm.
 
 **CPU (default):** no changes needed.
 
 **NVIDIA GPU:** install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on your host, then in `docker-compose.yml`:
-1. Change the image tag to `:latest`
+1. Change the image tag to `:latest` (default) or `:cuda-legacy` (Maxwell/Pascal/Volta — see below)
 2. Uncomment the `deploy:` section
 3. Set `GPU_WORKERS=2`
 
 ```yaml
 image: ghcr.io/tedornitier/immich-pet-tagger:latest
 ```
+
+The `:latest` image ships PyTorch's CUDA 12.8 wheels and supports Turing, Ampere, Ada Lovelace, Hopper, and Blackwell GPUs (compute capability 7.5–12.0, e.g. RTX 20xx/30xx/40xx/50xx, Tesla T4/A100/H100). Pascal and older are not covered — see the legacy tag.
+
+**NVIDIA legacy GPU (`:cuda-legacy`):** for Maxwell, Pascal, and Volta cards (GTX 9xx/10xx, Tesla P100/V100, compute capability 5.0–7.0). Same setup as above but use the `:cuda-legacy` tag instead:
+
+```yaml
+image: ghcr.io/tedornitier/immich-pet-tagger:cuda-legacy
+```
+
+This variant uses PyTorch's CUDA 12.6 wheels, which still include kernels for `sm_50` through `sm_90` but drop Blackwell (`sm_100`/`sm_120`). If you see `CUDA error: no kernel image is available for execution on the device` with `:latest` on an NVIDIA card, switch to this tag.
 
 **AMD GPU:** install ROCm drivers, then in `docker-compose.yml`:
 1. Change the image tag to `:rocm`
@@ -217,8 +227,6 @@ driver: amdgpu
 ```
 
 CPU-only works fine for most home libraries. Expect roughly 10x slower processing compared to GPU.
-
-**Unsupported:** Pascal GPUs (GTX 1070, 1080, etc., compute capability sm_61) are not supported by the `:latest` image. Use `:cpu` instead.
 
 ## Limitations
 
