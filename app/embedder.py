@@ -168,6 +168,38 @@ def crop_animals(img: Image.Image) -> list[tuple[tuple, Image.Image]]:
     ]
 
 
+def get_crops_and_embed(asset_id: str) -> list[tuple[dict, np.ndarray]]:
+    """Fetch thumbnail once, run YOLO, embed each crop. Returns [(crop_info, vec), ...]."""
+    img = fetch_thumbnail(asset_id)
+    if img is None:
+        return []
+    crops = crop_animals(img)
+    if not crops:
+        return []
+    result = []
+    for i, (bbox, crop_img) in enumerate(crops):
+        vec = embed_image(crop_img)
+        if vec is not None:
+            result.append(({"crop_idx": i, "bbox": list(bbox)}, vec))
+    return result
+
+
+def embed_crop_by_bbox(asset_id: str, bbox: list) -> np.ndarray | None:
+    """Embed a specific crop by normalized bounding box. Used for crop-centric refs."""
+    cached = _embed_cache.get(asset_id)
+    if cached is not None:
+        vecs = cached if isinstance(cached, list) else [cached]
+        if len(vecs) == 1:
+            return vecs[0]
+    img = fetch_thumbnail(asset_id)
+    if img is None:
+        return None
+    w, h = img.size
+    x1, y1, x2, y2 = bbox
+    crop_img = img.crop((int(x1 * w), int(y1 * h), int(x2 * w), int(y2 * h)))
+    return embed_image(crop_img)
+
+
 def load_embed_cache(data_dir: Path) -> None:
     global _cache_path
     _cache_path = data_dir / "embeddings.pkl"
@@ -192,17 +224,37 @@ def _save_embed_cache() -> None:
         log.warning(f"Could not save embedding cache: {e}")
 
 
-def embed_asset(asset_id: str) -> np.ndarray | None:
-    if asset_id in _embed_cache:
-        return _embed_cache[asset_id]
+def embed_asset_crops(asset_id: str, require_animal: bool = False) -> list[np.ndarray]:
+    """Return one embedding per detected animal crop. Falls back to full image if no crops and require_animal is False."""
+    cached = _embed_cache.get(asset_id)
+    if cached is not None:
+        return cached if isinstance(cached, list) else [cached]
+    img = fetch_thumbnail(asset_id)
+    if img is None:
+        return []
+    crops = crop_animals(img)
+    if not crops:
+        if require_animal:
+            return []
+        vec = embed_image(img)
+        vecs = [vec] if vec is not None else []
+    else:
+        vecs = [v for v in (embed_image(crop_img) for _, crop_img in crops) if v is not None]
+    if vecs:
+        _embed_cache[asset_id] = vecs
+        _save_embed_cache()
+    return vecs
+
+
+def embed_asset(asset_id: str, require_animal: bool = False) -> np.ndarray | None:
+    vecs = embed_asset_crops(asset_id, require_animal)
+    return vecs[0] if vecs else None
+
+
+def resolve_bbox(asset_id: str) -> list | None:
+    """Return the first YOLO bounding box for an asset, or None if no animal detected."""
     img = fetch_thumbnail(asset_id)
     if img is None:
         return None
     crops = crop_animals(img)
-    vec = embed_image(crops[0][1]) if crops else None
-    if vec is None:
-        vec = embed_image(img)
-    if vec is not None:
-        _embed_cache[asset_id] = vec
-        _save_embed_cache()
-    return vec
+    return list(crops[0][0]) if crops else None

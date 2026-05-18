@@ -9,13 +9,14 @@ services:
     container_name: immich-pet-tagger
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:2287:8000"
     environment:
       - IMMICH_URL=http://immich-server:2283      # name of your Immich container
-      - IMMICH_API_KEY=your_api_key_here          # generate in Immich: Account Settings, API Keys
+      - IMMICH_API_KEY=your_api_key_here          # generate in Immich: Account Settings, API Keys. Keep this secret.
       - IMMICH_EXTERNAL_URL=http://localhost:2283 # how your browser reaches Immich
       - POLL_INTERVAL=300
       - GPU_WORKERS=1
+      - YOLO_INPUT_SIZE=640
       - THRESHOLD=0.8
     # Uncomment the section below to enable NVIDIA GPU acceleration.
     # Requires nvidia-container-toolkit: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html

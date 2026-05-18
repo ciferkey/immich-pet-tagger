@@ -80,16 +80,23 @@ On first start, the YOLO model (~6 MB) and CLIP model (~350 MB) are downloaded a
 
 ### 5. Open the UI
 
-Go to **http://localhost:8000** in your browser.
+Go to **http://localhost:2287** in your browser.
 
-The UI binds to `127.0.0.1` by default, so it is only reachable from the same machine. There is no authentication. To allow access from other devices on your network, change the port binding in `docker-compose.yml`:
+The UI binds to `127.0.0.1` by default, so it is only reachable from the same machine. There is no authentication. To allow access from other devices on your network, or to use a different port, change the port binding in `docker-compose.yml`:
 
 ```yaml
 ports:
-  - "0.0.0.0:8000:8000"
+  - "0.0.0.0:2287:8000"  # accessible from other devices on your network
 ```
 
-Do not expose port 8000 to the internet without putting an authenticated reverse proxy in front of it.
+To use a different port, change only the first number. The second number (`8000`) is the container's internal port and must stay as-is:
+
+```yaml
+ports:
+  - "127.0.0.1:9000:8000"  # serves on port 9000 instead
+```
+
+Do not expose this to the internet without putting an authenticated reverse proxy in front of it.
 
 ## Updating
 
@@ -110,7 +117,7 @@ Getting good results takes a few iterations. Start by adding a pet, building up 
 
 ### Step 1: Add your pet
 
-**Import from Immich**: use this if Immich already recognizes your pet as a person from its own face detection.
+**Import from Immich**: use this if Immich already recognizes your pet as a person from its own face detection. This is ideal when the person in Immich contains only photos of that pet, for example if you tagged them manually and are confident the assignments are correct. The tagger does not remove or correct existing Immich face assignments, so any misidentified photos already tagged in Immich will stay tagged. If Immich's recognition was noisy, consider adding your pet manually instead.
 
 1. Click **↓ Import from Immich** in the sidebar
 2. Find and click your pet in the grid
@@ -130,22 +137,18 @@ References are what the classifier learns from. Quality matters more than quanti
 
 1. Select your pet in the sidebar and click **Find references**
 2. Browse the results. They are ranked by visual similarity to your existing refs, or to your description if no refs exist yet.
-3. Select clear, varied photos and click **Add to pet →**
-4. Aim for 10–20 references to start; you can always add more
-
-What to avoid:
-- **Multiple animals in frame**: only one animal is cropped and classified per detection, so the photo might represent the wrong pet
-- **Blurry or dark shots**: poor image quality produces unreliable embeddings
-- **Uncertain ones**: if you're not sure it's your pet, skip it. A few noisy refs hurt more than having fewer refs overall.
+3. Aim for 20–30 to start; results improve up to around 50. For each photo:
+   - **Add to pet**: clear, close-up shot, your pet is the only subject.
+   - **Ignore**: blurry, distant, another person or animal visible alongside your pet, or a look-alike that is not yours. Ignored photos won't appear again.
+   - **Not my pets**: photos that could confuse the classifier. Empty rooms, other species, ambiguous shots. Around 50 is enough.
 
 ### Step 3: Add "not my pets" samples
 
-These help the classifier reject photos that look similar to your pet but aren't, reducing false positives.
+These teach the classifier what not to tag: empty rooms, other animals of a different species, ambiguous shots with no clear subject. Without them, the classifier will tag almost anything.
 
-1. In the **Not my pets** panel (bottom right of the screen), click **Find candidates**
-2. The tool samples random photos from your library, scores them with the classifier, and surfaces the ones most likely to confuse it
-3. Select photos that are not your pet and click **Not my pets**
-4. Aim for roughly 2–3× as many negatives as total references across all pets
+1. In the **Not my pets** panel (bottom right of the screen), click **Find candidates** to automatically surface more photos that might confuse the classifier
+2. Select the relevant ones and click **Not my pets**
+
 
 ### Step 4: Run a test scan
 
@@ -154,7 +157,7 @@ Start with a recent date so the scan covers fewer photos, making it quicker to r
 1. In the **Scan from** panel at the bottom of the sidebar, set a date 1–2 weeks back
 2. Click **Scan** and wait for the results
 3. If **Review N low confidence** appears in the results, click it to see photos the classifier identified as a match but wasn't fully confident about.
-4. Go through them: add correctly identified ones as references, mark wrong ones as **Not my pets**, and skip the rest
+4. Go through them: add correctly identified ones as references, and click **Ignore** on the rest. Ignored photos won't appear in future results.
 
 ### Step 5: Iterate
 
@@ -181,6 +184,8 @@ After that, the background poller runs every 5 minutes and tags new photos autom
 | `POLL_INTERVAL` | `300` | Seconds between scans |
 | `SCAN_WORKERS` | `GPU_WORKERS × 32` | Concurrent thumbnail fetches. Auto-derived to keep GPU batches full. Override only if Immich feels slow during scans. |
 | `GPU_WORKERS` | `2` (GPU) / `1` (CPU) | Parallel YOLO and CLIP inference threads. `2` is optimal for GPU; CPU defaults to `1` since a second worker just duplicates the models in RAM with no throughput gain. |
+| `YOLO_INPUT_SIZE` | `640` | YOLO detection resolution in pixels. Higher values improve detection of small animals at the cost of more memory and compute. Must be a multiple of 32. |
+| `YOLO_BATCH_SIZE` | `32` | Max images per YOLO inference batch. Reduce if you hit GPU out-of-memory errors. |
 | `THRESHOLD` | `0.8` | Min confidence (0–1) to tag a photo |
 
 ---
@@ -214,6 +219,8 @@ driver: amdgpu
 ```
 
 CPU-only works fine for most home libraries. Expect roughly 10x slower processing compared to GPU.
+
+**Unsupported:** Pascal GPUs (GTX 1070, 1080, etc., compute capability sm_61) are not supported by the `:latest` image. Use `:cpu` instead.
 
 ## Limitations
 

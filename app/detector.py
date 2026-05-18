@@ -14,7 +14,7 @@ log = logging.getLogger("detector")
 
 YOLO_BATCH_SIZE = int(os.environ.get("YOLO_BATCH_SIZE", 32))
 YOLO_WORKERS = int(os.environ.get("GPU_WORKERS", 2))
-YOLO_INPUT_SIZE = int(os.environ.get("YOLO_INPUT_SIZE", 320))
+YOLO_INPUT_SIZE = int(os.environ.get("YOLO_INPUT_SIZE", 640))
 
 ANIMAL_CLASS_IDS = {
     14,  # bird

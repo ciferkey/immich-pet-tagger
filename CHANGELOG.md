@@ -1,9 +1,40 @@
 # Changelog
 
-## v1.2.1
+## v2.0.0
 
 ### Fixes
 - **Pascal GPU support**: the NVIDIA image now ships with PyTorch's CUDA 12.6 wheels instead of CUDA 12.8, restoring kernels for compute capability 5.0–9.0 (Maxwell through Hopper). Fixes `CUDA error: no kernel image is available for execution on the device` on GTX 9xx/10xx and Volta cards. Trade-off: Blackwell (RTX 50xx) is no longer covered by the default image.
+
+---
+
+## v1.3.1
+
+### Fixes
+- CPU image reduced from ~12.7 GB to ~2.4 GB. The default build was silently pulling the CUDA torch wheel from PyPI instead of the CPU-only wheel.
+- Switched to a multi-stage Docker build with a virtual environment, eliminating ghost install layers that kept deleted packages on disk.
+- Removed triton (545 MB, only needed for `torch.compile()`) from all images.
+- Fixed a duplicate opencv library left behind by the previous `--force-reinstall` approach.
+
+---
+
+## v1.3.0
+
+### Crop-centric references
+- References now store the YOLO-detected crop rather than the full image, matching the format seen during inference. Existing refs are migrated automatically on startup.
+- The ref grid now shows the crop thumbnail instead of the full photo.
+- Import from Immich and Find references now run YOLO on candidates and skip photos where no animal is detected.
+- When YOLO finds no crop for a ref, the full image is used as a fallback instead of silently dropping the ref.
+
+### UX improvements
+- Updated getting started guide with guidance based on tested results: aim for 20–30 references, ~50 negatives. Action buttons now have matching tooltips. Skip renamed to Ignore.
+- Refs panel no longer scrolls to the top when removing a ref.
+- Fixed an intermittent bug where clicking a pet in the sidebar would show the getting started guide instead of the pet view.
+- Find candidates now samples 50 photos instead of 100 (faster) and raises the minimum score threshold to 30%.
+
+### Other
+- Scan progress now uses upload time (`createdAt`) instead of EXIF date, so late-synced photos never fall behind the scan cutoff.
+- Ref and negative grid thumbnails now use `object-fit: contain`.
+- Default UI port changed to 2287.
 
 ---
 

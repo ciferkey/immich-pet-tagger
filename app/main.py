@@ -8,6 +8,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
+import torch
 import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -15,7 +16,7 @@ from fastapi.responses import FileResponse
 
 from pathlib import Path
 from embedder import load_embed_cache
-from poller import run_poll_cycle
+from poller import run_poll_cycle, migrate_ref_bboxes
 from api import router as api_router
 import state
 
@@ -31,7 +32,8 @@ DATA_DIR = os.environ.get("DATA_DIR", "/data")
 
 
 async def polling_loop():
-    log.info(f"Poller started. Interval: {POLL_INTERVAL}s. Data dir: {DATA_DIR}")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    log.info(f"Poller started. Interval: {POLL_INTERVAL}s. Data dir: {DATA_DIR}. Device: {device}")
     while True:
         try:
             log.info("Starting poll cycle...")
@@ -47,6 +49,7 @@ async def polling_loop():
 async def lifespan(app: FastAPI):
     state.init()
     load_embed_cache(Path(DATA_DIR))
+    await asyncio.to_thread(migrate_ref_bboxes, Path(DATA_DIR))
     task = asyncio.create_task(polling_loop())
     yield
     task.cancel()
