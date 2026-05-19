@@ -1,8 +1,11 @@
 """File I/O helpers. All functions take an explicit data_dir Path."""
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
+
+log = logging.getLogger("data")
 
 
 # ---------------------------------------------------------------------------
@@ -11,7 +14,13 @@ from pathlib import Path
 
 def load_config(data_dir: Path) -> dict:
     f = data_dir / "config.json"
-    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+    if not f.exists():
+        return {}
+    try:
+        return json.loads(f.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.error(f"Corrupted {f}, returning empty config: {e}")
+        return {}
 
 
 def save_config(config: dict, data_dir: Path) -> None:
@@ -28,7 +37,11 @@ def load_pet_refs(pet_name: str, data_dir: Path) -> list[dict]:
     ref_file = data_dir / "pets" / pet_name / "refs.json"
     if not ref_file.exists():
         return []
-    data = json.loads(ref_file.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(ref_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.error(f"Corrupted {ref_file}, returning empty refs: {e}")
+        return []
     if not data:
         return []
     if isinstance(data[0], str):
@@ -59,7 +72,13 @@ def save_pet_refs(pet_name: str, refs: list[dict], data_dir: Path) -> None:
 
 def load_negative_ids(data_dir: Path) -> list[str]:
     path = data_dir / "negatives.json"
-    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    if not path.exists():
+        return []
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.error(f"Corrupted {path}, returning empty negatives: {e}")
+        return []
 
 
 def save_negative_ids(ids: list[str], data_dir: Path) -> None:
@@ -73,7 +92,13 @@ def save_negative_ids(ids: list[str], data_dir: Path) -> None:
 
 def load_skipped_ids(data_dir: Path) -> list[str]:
     path = data_dir / "skipped.json"
-    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    if not path.exists():
+        return []
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.error(f"Corrupted {path}, returning empty skipped list: {e}")
+        return []
 
 
 def save_skipped_ids(ids: list[str], data_dir: Path) -> None:
@@ -105,7 +130,13 @@ def save_last_timestamp(ts: str, data_dir: Path) -> None:
 
 def load_poll_status(data_dir: Path) -> dict:
     path = data_dir / "last_poll_status.json"
-    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"status": "never"}
+    if not path.exists():
+        return {"status": "never"}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.error(f"Corrupted {path}, returning default status: {e}")
+        return {"status": "never"}
 
 
 def write_poll_status(data_dir: Path, payload: dict) -> None:
