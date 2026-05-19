@@ -45,25 +45,20 @@ def _fetch_assets(query: dict, ts_field: str, label: str) -> list[tuple[str, str
     page = 1
     size = 1000
     while True:
-        try:
-            r = requests.post(url, json={**query, "page": page, "size": size, "order": "asc"}, headers=hdrs, timeout=30)
-            if r.status_code != 200:
-                log.warning(f"{label}: status={r.status_code} page={page}")
-                break
-            data = r.json()
-            block = data.get("assets") or {}
-            items = (block.get("items") if isinstance(block, dict) else None) or data.get("items") or []
-            for a in items:
-                aid = a.get("id")
-                ts = a.get(ts_field) or a.get("localDateTime") or ""
-                if aid and ts:
-                    out.append((str(aid).strip("\x00"), ts))
-            if len(items) < size:
-                break
-            page += 1
-        except Exception as e:
-            log.error(f"{label} error: {e}")
+        r = requests.post(url, json={**query, "page": page, "size": size, "order": "asc"}, headers=hdrs, timeout=30)
+        if r.status_code != 200:
+            raise RuntimeError(f"{label}: HTTP {r.status_code} on page {page}: {r.text[:200]}")
+        data = r.json()
+        block = data.get("assets") or {}
+        items = (block.get("items") if isinstance(block, dict) else None) or data.get("items") or []
+        for a in items:
+            aid = a.get("id")
+            ts = a.get(ts_field) or a.get("localDateTime") or ""
+            if aid and ts:
+                out.append((str(aid).strip("\x00"), ts))
+        if len(items) < size:
             break
+        page += 1
     return out
 
 
@@ -75,8 +70,8 @@ def fetch_face_id_for_person(asset_id: str, person_id: str) -> str | None:
             for face in r.json():
                 if (face.get("person") or {}).get("id") == person_id:
                     return face.get("id")
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning(f"fetch_face_id_for_person {asset_id}: {e}")
     return None
 
 
