@@ -261,6 +261,8 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
         f"counts={counts}"
     )
 
+    emb.save_embed_cache()
+
     if not manual:
         data.save_last_timestamp(latest_ts, dd)
         log.info(f"Saved timestamp: {latest_ts}")

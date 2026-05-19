@@ -186,6 +186,7 @@ After that, the background poller runs every 5 minutes and tags new photos autom
 | `GPU_WORKERS` | `2` (GPU) / `1` (CPU) | Parallel YOLO and CLIP inference threads. `2` is optimal for GPU; CPU defaults to `1` since a second worker just duplicates the models in RAM with no throughput gain. |
 | `YOLO_INPUT_SIZE` | `640` | YOLO detection resolution in pixels. Higher values improve detection of small animals at the cost of more memory and compute. Must be a multiple of 32. |
 | `YOLO_BATCH_SIZE` | `32` | Max images per YOLO inference batch. Reduce if you hit GPU out-of-memory errors. |
+| `EMBED_CACHE_SIZE` | `5000` | Max number of embeddings kept in the in-memory LRU cache. Older entries are evicted when the limit is reached. |
 | `THRESHOLD` | `0.8` | Min confidence (0–1) to tag a photo |
 
 ---
