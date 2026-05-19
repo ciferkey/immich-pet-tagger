@@ -403,9 +403,19 @@ async def remove_pet_asset(name: str, asset_id: str, crop_idx: Optional[int] = N
 # Ref suggestions
 # ---------------------------------------------------------------------------
 
+def _build_classifier_from_config(config: dict):
+    """Load all pet refs and return (names, clf, scaler), or None if no pets have refs."""
+    from classifier import build_classifier
+    all_pet_names = list(config.keys())
+    all_refs = {n: data.load_pet_refs(config[n].get("person_id") or n, DATA_DIR) for n in all_pet_names}
+    pet_names = [n for n in all_pet_names if all_refs.get(n)]
+    refs_per_pet = {n: all_refs[n] for n in pet_names}
+    negative_ids = data.load_negative_ids(DATA_DIR)
+    return build_classifier(pet_names, refs_per_pet, negative_ids)
+
+
 @router.get("/pets/{name}/suggestions")
 async def get_suggestions(name: str, limit: int = 20):
-    from classifier import build_classifier
     config = data.load_config(DATA_DIR)
     if name not in config:
         raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
@@ -441,14 +451,8 @@ async def get_suggestions(name: str, limit: int = 20):
     if not ref_ids:
         return {"assets": [_slim_asset(a) for a in candidates[:limit]]}
 
-    all_pet_names = list(config.keys())
-    all_refs = {n: data.load_pet_refs(config[n].get("person_id") or n, DATA_DIR) for n in all_pet_names}
-    pet_names = [n for n in all_pet_names if all_refs.get(n)]
-    refs_per_pet = {n: all_refs[n] for n in pet_names}
-    negative_ids = data.load_negative_ids(DATA_DIR)
-
     def compute():
-        result = build_classifier(pet_names, refs_per_pet, negative_ids)
+        result = _build_classifier_from_config(config)
         if result is None:
             return []
         names, clf, scaler = result
@@ -473,7 +477,7 @@ async def get_suggestions(name: str, limit: int = 20):
 
 @router.get("/pets/{name}/borderline")
 async def get_borderline(name: str, limit: int = 40):
-    from classifier import build_classifier
+    from poller import THRESHOLD
     config = data.load_config(DATA_DIR)
     if name not in config:
         raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
@@ -494,13 +498,6 @@ async def get_borderline(name: str, limit: int = 40):
     if not candidates:
         return {"assets": []}
 
-    all_pet_names = list(config.keys())
-    all_refs = {n: data.load_pet_refs(config[n].get("person_id") or n, DATA_DIR) for n in all_pet_names}
-    pet_names = [n for n in all_pet_names if all_refs.get(n)]
-    refs_per_pet = {n: all_refs[n] for n in pet_names}
-    negative_ids = data.load_negative_ids(DATA_DIR)
-
-    from poller import THRESHOLD
     LOW, HIGH = 0.3, THRESHOLD
 
     state.borderline_request_id += 1
@@ -511,7 +508,7 @@ async def get_borderline(name: str, limit: int = 40):
         state.borderline_progress["total"] = 0
         state.borderline_progress["running"] = True
         try:
-            result = build_classifier(pet_names, refs_per_pet, negative_ids)
+            result = _build_classifier_from_config(config)
             if result is None:
                 return []
             names, clf, scaler = result
@@ -541,7 +538,6 @@ async def get_borderline(name: str, limit: int = 40):
             if state.borderline_request_id == my_id:
                 state.borderline_progress["running"] = False
 
-    from poller import THRESHOLD
     scored = await asyncio.to_thread(compute)
     return {
         "assets": [slim for _, slim in scored],
@@ -556,7 +552,6 @@ async def get_borderline_progress(name: str):
 
 @router.get("/suggestions/negatives")
 async def get_neg_candidates(limit: int = 60):
-    from classifier import build_classifier
     from poller import THRESHOLD
     config = data.load_config(DATA_DIR)
 
@@ -581,10 +576,6 @@ async def get_neg_candidates(limit: int = 60):
     if not candidates:
         return {"assets": [], "threshold": THRESHOLD}
 
-    pet_names = [n for n in all_pet_names if all_refs.get(n)]
-    refs_per_pet = {n: all_refs[n] for n in pet_names}
-    negative_ids = data.load_negative_ids(DATA_DIR)
-
     state.neg_request_id += 1
     my_id = state.neg_request_id
 
@@ -593,7 +584,7 @@ async def get_neg_candidates(limit: int = 60):
         state.neg_progress["total"] = 0
         state.neg_progress["running"] = True
         try:
-            result = build_classifier(pet_names, refs_per_pet, negative_ids)
+            result = _build_classifier_from_config(config)
             if result is None:
                 return []
             names, clf, scaler = result
