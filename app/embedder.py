@@ -138,7 +138,7 @@ def fetch_thumbnail(asset_id: str) -> Image.Image | None:
         r = requests.get(
             f"{imm.IMMICH_URL}/api/assets/{asset_id}/thumbnail?size=preview",
             headers={"x-api-key": imm.IMMICH_API_KEY},
-            timeout=15,
+            timeout=30,
         )
         if r.status_code == 200 and r.content:
             return Image.open(io.BytesIO(r.content)).convert("RGB")
