@@ -14,9 +14,24 @@ IMMICH_API_KEY = os.environ.get("IMMICH_API_KEY", "")
 
 FACE_BOX_SIZE = 256
 
+_owner_id: str | None = None
+
 
 def headers() -> dict:
     return {"x-api-key": IMMICH_API_KEY, "Accept": "application/json"}
+
+
+def get_owner_id() -> str | None:
+    """Return the user ID of the API key owner, cached after first call."""
+    global _owner_id
+    if _owner_id is None:
+        try:
+            r = requests.get(f"{IMMICH_URL}/api/users/me", headers=headers(), timeout=10)
+            if r.status_code == 200:
+                _owner_id = r.json().get("id")
+        except Exception as e:
+            log.warning(f"get_owner_id failed: {e}")
+    return _owner_id
 
 
 # ---------------------------------------------------------------------------
@@ -51,10 +66,13 @@ def _fetch_assets(query: dict, ts_field: str, label: str) -> list[tuple[str, str
         data = r.json()
         block = data.get("assets") or {}
         items = (block.get("items") if isinstance(block, dict) else None) or data.get("items") or []
+        owner_id = get_owner_id()
         for a in items:
             aid = a.get("id")
             ts = a.get(ts_field) or a.get("localDateTime") or ""
             if aid and ts:
+                if owner_id and a.get("ownerId") != owner_id:
+                    continue
                 out.append((str(aid).strip("\x00"), ts))
         if len(items) < size:
             break
