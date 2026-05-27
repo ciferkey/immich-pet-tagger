@@ -9,7 +9,7 @@ async function api(path, opts = {}) {
 function toast(msg, type = '') {
   const el = document.getElementById('toast');
   el.textContent = msg; el.className = 'toast show' + (type ? ' ' + type : '');
-  clearTimeout(el._t); el._t = setTimeout(() => el.className = 'toast', 2500);
+  clearTimeout(el._t); el._t = setTimeout(() => el.className = 'toast', 4000);
 }
 
 function initials(name) { return name.slice(0, 2).toUpperCase(); }
@@ -715,7 +715,7 @@ function openDeletePet(name) {
   document.getElementById('deleteLocalOnlyText').textContent =
     `"Remove from Pet Tagger only" keeps ${name} in Immich with all tagged photos intact, but stops auto-tagging new photos. You can re-import it later.`;
   document.getElementById('resetImmichText').textContent =
-    `"Reset faces in Immich" untags all photos for ${name} in Immich and creates a fresh person, but keeps your reference images so you can start tagging again right away.`;
+    `"Untag all photos in Immich" removes all tags for ${name} in Immich and creates a fresh person, but keeps your reference images so you can start tagging again right away.`;
   document.getElementById('deletePetModal').classList.add('open');
 }
 function closeDeleteModal() { document.getElementById('deletePetModal').classList.remove('open'); _petToDelete = null; }
