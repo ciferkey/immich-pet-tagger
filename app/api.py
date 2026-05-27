@@ -211,8 +211,13 @@ async def reset_pet_immich(name: str):
 
     # Delete old Immich person. 404 means it was already removed manually, which is fine.
     if old_person_id:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.delete(f"{imm.IMMICH_URL}/api/people/{old_person_id}", headers=imm.headers())
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.delete(f"{imm.IMMICH_URL}/api/people/{old_person_id}", headers=imm.headers())
+        except httpx.ConnectError:
+            raise HTTPException(status_code=503, detail="Cannot reach Immich. Is it running?")
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="Immich did not respond in time.")
         if resp.status_code == 404:
             log.warning(f"Immich person {old_person_id} for pet '{name}' not found, treating as already deleted")
         elif resp.status_code not in (200, 204):
@@ -222,8 +227,17 @@ async def reset_pet_immich(name: str):
 
     # Create new Immich person. If this fails, the old person is already gone so we must
     # clear person_id from config to leave the pet in a consistent (unlinked) state.
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.post(f"{imm.IMMICH_URL}/api/people", headers=imm.headers(), json={"name": name})
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(f"{imm.IMMICH_URL}/api/people", headers=imm.headers(), json={"name": name})
+    except httpx.ConnectError:
+        config[name]["person_id"] = None
+        data.save_config(config, DATA_DIR)
+        raise HTTPException(status_code=503, detail="Cannot reach Immich. Is it running? Pet has been unlinked.")
+    except httpx.TimeoutException:
+        config[name]["person_id"] = None
+        data.save_config(config, DATA_DIR)
+        raise HTTPException(status_code=504, detail="Immich did not respond in time. Pet has been unlinked.")
     if resp.status_code not in (200, 201):
         config[name]["person_id"] = None
         data.save_config(config, DATA_DIR)
