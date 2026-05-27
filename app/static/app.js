@@ -711,9 +711,11 @@ let _petToDelete = null;
 function openDeletePet(name) {
   _petToDelete = name;
   document.getElementById('deleteWarningText').textContent =
-    `"Delete from Immich too" removes the person and untags all tagged photos in Immich permanently. Your photos are not deleted.`;
+    `"Delete from Immich too" removes the person and untags all tagged photos in Immich permanently.`;
   document.getElementById('deleteLocalOnlyText').textContent =
-    `"Remove from Pet Tagger only" keeps ${name} in Immich with all tagged photos intact, but stops auto-tagging new photos. Your photos are not deleted. You can re-import it later.`;
+    `"Remove from Pet Tagger only" keeps ${name} in Immich with all tagged photos intact, but stops auto-tagging new photos. You can re-import it later.`;
+  document.getElementById('resetImmichText').textContent =
+    `"Reset faces in Immich" untags all photos for ${name} in Immich and creates a fresh person, but keeps your reference images so you can start tagging again right away.`;
   document.getElementById('deletePetModal').classList.add('open');
 }
 function closeDeleteModal() { document.getElementById('deletePetModal').classList.remove('open'); _petToDelete = null; }
@@ -732,6 +734,17 @@ async function confirmDeletePet(localOnly) {
     }
     await refreshState();
     toast(localOnly ? `Removed ${name} from Pet Tagger` : `Deleted ${name}. Immich will clean up faces in the background.`, 'success');
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function confirmResetPet() {
+  if (!_petToDelete) return;
+  const name = _petToDelete;
+  closeDeleteModal();
+  try {
+    await api(`/api/pets/${encodeURIComponent(name)}/reset-immich`, { method: 'POST' });
+    await refreshState();
+    toast(`Reset ${name}: all Immich tags cleared, reference images preserved.`, 'success');
   } catch(e) { toast('Error: ' + e.message, 'error'); }
 }
 

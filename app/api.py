@@ -199,6 +199,70 @@ async def update_pet(name: str, update: PetUpdate):
     return {"ok": True}
 
 
+@router.post("/pets/{name}/reset-immich")
+async def reset_pet_immich(name: str):
+    """Delete the Immich person for this pet (removing all face tags), create a fresh one,
+    and preserve the local refs. face_ids in refs are cleared since the old person is gone."""
+    config = data.load_config(DATA_DIR)
+    if name not in config:
+        raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
+
+    old_person_id = config[name].get("person_id")
+
+    # Delete old Immich person. 404 means it was already removed manually, which is fine.
+    if old_person_id:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.delete(f"{imm.IMMICH_URL}/api/people/{old_person_id}", headers=imm.headers())
+        if resp.status_code == 404:
+            log.warning(f"Immich person {old_person_id} for pet '{name}' not found, treating as already deleted")
+        elif resp.status_code not in (200, 204):
+            raise HTTPException(status_code=resp.status_code, detail=f"Immich error deleting person: {resp.text}")
+        else:
+            log.info(f"Deleted Immich person {old_person_id} for pet '{name}' (reset)")
+
+    # Create new Immich person. If this fails, the old person is already gone so we must
+    # clear person_id from config to leave the pet in a consistent (unlinked) state.
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(f"{imm.IMMICH_URL}/api/people", headers=imm.headers(), json={"name": name})
+    if resp.status_code not in (200, 201):
+        config[name]["person_id"] = None
+        data.save_config(config, DATA_DIR)
+        raise HTTPException(
+            status_code=resp.status_code,
+            detail=f"Immich error creating person: {resp.text}. Pet '{name}' has been unlinked from Immich. Re-create it from the pet settings.",
+        )
+
+    new_person_id = resp.json().get("id")
+    if not new_person_id:
+        config[name]["person_id"] = None
+        data.save_config(config, DATA_DIR)
+        raise HTTPException(status_code=502, detail="Immich returned no person ID. Pet has been unlinked. Re-create it from the pet settings.")
+
+    # Load refs before removing old folder, then clean up.
+    old_refs = []
+    if old_person_id:
+        old_refs = data.load_pet_refs(old_person_id, DATA_DIR)
+        old_dir = PETS_DIR / old_person_id
+        if old_dir.exists():
+            try:
+                shutil.rmtree(old_dir)
+            except Exception as e:
+                log.warning(f"Could not remove old pet folder {old_dir}: {e}")
+
+    (PETS_DIR / new_person_id).mkdir(parents=True, exist_ok=True)
+    cleaned_refs = [
+        {"asset_id": r["asset_id"], "crop_idx": r.get("crop_idx"), "bbox": r.get("bbox"), "face_id": None}
+        for r in old_refs
+    ]
+    data.save_pet_refs(new_person_id, cleaned_refs, DATA_DIR)
+
+    config[name]["person_id"] = new_person_id
+    data.save_config(config, DATA_DIR)
+
+    log.info(f"Reset pet '{name}': old_person={old_person_id}, new_person={new_person_id}, refs_preserved={len(old_refs)}")
+    return {"ok": True, "new_person_id": new_person_id, "refs_preserved": len(old_refs)}
+
+
 @router.delete("/pets/{name}")
 async def delete_pet(name: str, local_only: bool = False):
     config = data.load_config(DATA_DIR)
