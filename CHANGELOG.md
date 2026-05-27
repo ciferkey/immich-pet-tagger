@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.4.0
+
+### Features
+- **Untag all photos in Immich**: new option in the pet delete modal that removes all Immich face tags and creates a fresh person, while keeping local reference images so you can start tagging again immediately.
+
+### Fixes
+- **Partner sharing**: assets not owned by the API key holder are now skipped during tagging. Previously, when partner sharing was enabled, the tagger would create cross-account face records that caused a `FOREIGN KEY constraint failed` crash on the partner's mobile sync stream.
+- Immich API errors are now propagated instead of silently returning empty results when asset searches fail.
+- All data file writes are now atomic (write to tmp, then replace) to prevent file corruption on crash or power loss.
+- All JSON reads now guard against corrupted or partial files, returning safe defaults instead of crashing.
+- Embed cache is now capped with LRU eviction and batched disk saves, preventing unbounded memory growth on large libraries.
+- Fetch thumbnail timeout increased to 30s, fixing failures on remote or slower Immich setups.
+- Network errors (Immich unreachable, timeout) now surface as readable messages in the UI instead of a generic 500 error.
+
+---
+
 ## v1.3.3
 
 ### Features

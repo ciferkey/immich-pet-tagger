@@ -6,6 +6,7 @@ import os
 import pickle
 import queue
 import threading
+from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
@@ -25,8 +26,11 @@ CLIP_BATCH_SIZE = int(os.environ.get("CLIP_BATCH_SIZE", 32))
 CLIP_MODEL_NAME = "ViT-B-16"
 CLIP_PRETRAINED = "openai"
 
-_embed_cache: dict[str, np.ndarray] = {}
+MAX_EMBED_CACHE_SIZE = int(os.environ.get("EMBED_CACHE_SIZE", 5000))
+_embed_cache: OrderedDict[str, list[np.ndarray]] = OrderedDict()
 _cache_path: Path | None = None
+_cache_dirty = False
+_cache_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # CLIP batch workers
@@ -134,7 +138,7 @@ def fetch_thumbnail(asset_id: str) -> Image.Image | None:
         r = requests.get(
             f"{imm.IMMICH_URL}/api/assets/{asset_id}/thumbnail?size=preview",
             headers={"x-api-key": imm.IMMICH_API_KEY},
-            timeout=15,
+            timeout=30,
         )
         if r.status_code == 200 and r.content:
             return Image.open(io.BytesIO(r.content)).convert("RGB")
@@ -186,7 +190,10 @@ def get_crops_and_embed(asset_id: str) -> list[tuple[dict, np.ndarray]]:
 
 def embed_crop_by_bbox(asset_id: str, bbox: list) -> np.ndarray | None:
     """Embed a specific crop by normalized bounding box. Used for crop-centric refs."""
-    cached = _embed_cache.get(asset_id)
+    with _cache_lock:
+        cached = _embed_cache.get(asset_id)
+        if cached is not None:
+            _embed_cache.move_to_end(asset_id)
     if cached is not None:
         vecs = cached if isinstance(cached, list) else [cached]
         if len(vecs) == 1:
@@ -206,27 +213,46 @@ def load_embed_cache(data_dir: Path) -> None:
     if _cache_path.exists():
         try:
             with open(_cache_path, "rb") as f:
-                _embed_cache.update(pickle.load(f))
+                loaded = pickle.load(f)
+            with _cache_lock:
+                _embed_cache.update(loaded)
+                while len(_embed_cache) > MAX_EMBED_CACHE_SIZE:
+                    _embed_cache.popitem(last=False)
             log.info(f"Loaded {len(_embed_cache)} cached embeddings from {_cache_path}")
         except Exception as e:
             log.warning(f"Could not load embedding cache: {e}")
 
 
 def _save_embed_cache() -> None:
+    global _cache_dirty
     if _cache_path is None:
         return
+    with _cache_lock:
+        if not _cache_dirty:
+            return
+        snapshot = dict(_embed_cache)
+        _cache_dirty = False
     tmp = _cache_path.with_suffix(".tmp")
     try:
         with open(tmp, "wb") as f:
-            pickle.dump(_embed_cache, f)
+            pickle.dump(snapshot, f)
         tmp.replace(_cache_path)
     except Exception as e:
         log.warning(f"Could not save embedding cache: {e}")
 
 
+def save_embed_cache() -> None:
+    """Flush the embedding cache to disk. Call at the end of each scan cycle."""
+    _save_embed_cache()
+
+
 def embed_asset_crops(asset_id: str, require_animal: bool = False) -> list[np.ndarray]:
     """Return one embedding per detected animal crop. Falls back to full image if no crops and require_animal is False."""
-    cached = _embed_cache.get(asset_id)
+    global _cache_dirty
+    with _cache_lock:
+        cached = _embed_cache.get(asset_id)
+        if cached is not None:
+            _embed_cache.move_to_end(asset_id)
     if cached is not None:
         return cached if isinstance(cached, list) else [cached]
     img = fetch_thumbnail(asset_id)
@@ -241,8 +267,12 @@ def embed_asset_crops(asset_id: str, require_animal: bool = False) -> list[np.nd
     else:
         vecs = [v for v in (embed_image(crop_img) for _, crop_img in crops) if v is not None]
     if vecs:
-        _embed_cache[asset_id] = vecs
-        _save_embed_cache()
+        with _cache_lock:
+            _embed_cache[asset_id] = vecs
+            _embed_cache.move_to_end(asset_id)
+            if len(_embed_cache) > MAX_EMBED_CACHE_SIZE:
+                _embed_cache.popitem(last=False)
+            _cache_dirty = True
     return vecs
 
 

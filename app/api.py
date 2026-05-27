@@ -199,6 +199,84 @@ async def update_pet(name: str, update: PetUpdate):
     return {"ok": True}
 
 
+@router.post("/pets/{name}/reset-immich")
+async def reset_pet_immich(name: str):
+    """Delete the Immich person for this pet (removing all face tags), create a fresh one,
+    and preserve the local refs. face_ids in refs are cleared since the old person is gone."""
+    config = data.load_config(DATA_DIR)
+    if name not in config:
+        raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
+
+    old_person_id = config[name].get("person_id")
+
+    # Delete old Immich person. 404 means it was already removed manually, which is fine.
+    if old_person_id:
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.delete(f"{imm.IMMICH_URL}/api/people/{old_person_id}", headers=imm.headers())
+        except httpx.ConnectError:
+            raise HTTPException(status_code=503, detail="Cannot reach Immich. Is it running?")
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="Immich did not respond in time.")
+        if resp.status_code == 404:
+            log.warning(f"Immich person {old_person_id} for pet '{name}' not found, treating as already deleted")
+        elif resp.status_code not in (200, 204):
+            raise HTTPException(status_code=resp.status_code, detail=f"Immich error deleting person: {resp.text}")
+        else:
+            log.info(f"Deleted Immich person {old_person_id} for pet '{name}' (reset)")
+
+    # Create new Immich person. If this fails, the old person is already gone so we must
+    # clear person_id from config to leave the pet in a consistent (unlinked) state.
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(f"{imm.IMMICH_URL}/api/people", headers=imm.headers(), json={"name": name})
+    except httpx.ConnectError:
+        config[name]["person_id"] = None
+        data.save_config(config, DATA_DIR)
+        raise HTTPException(status_code=503, detail="Cannot reach Immich. Is it running? Pet has been unlinked.")
+    except httpx.TimeoutException:
+        config[name]["person_id"] = None
+        data.save_config(config, DATA_DIR)
+        raise HTTPException(status_code=504, detail="Immich did not respond in time. Pet has been unlinked.")
+    if resp.status_code not in (200, 201):
+        config[name]["person_id"] = None
+        data.save_config(config, DATA_DIR)
+        raise HTTPException(
+            status_code=resp.status_code,
+            detail=f"Immich error creating person: {resp.text}. Pet '{name}' has been unlinked from Immich. Re-create it from the pet settings.",
+        )
+
+    new_person_id = resp.json().get("id")
+    if not new_person_id:
+        config[name]["person_id"] = None
+        data.save_config(config, DATA_DIR)
+        raise HTTPException(status_code=502, detail="Immich returned no person ID. Pet has been unlinked. Re-create it from the pet settings.")
+
+    # Load refs before removing old folder, then clean up.
+    old_refs = []
+    if old_person_id:
+        old_refs = data.load_pet_refs(old_person_id, DATA_DIR)
+        old_dir = PETS_DIR / old_person_id
+        if old_dir.exists():
+            try:
+                shutil.rmtree(old_dir)
+            except Exception as e:
+                log.warning(f"Could not remove old pet folder {old_dir}: {e}")
+
+    (PETS_DIR / new_person_id).mkdir(parents=True, exist_ok=True)
+    cleaned_refs = [
+        {"asset_id": r["asset_id"], "crop_idx": r.get("crop_idx"), "bbox": r.get("bbox"), "face_id": None}
+        for r in old_refs
+    ]
+    data.save_pet_refs(new_person_id, cleaned_refs, DATA_DIR)
+
+    config[name]["person_id"] = new_person_id
+    data.save_config(config, DATA_DIR)
+
+    log.info(f"Reset pet '{name}': old_person={old_person_id}, new_person={new_person_id}, refs_preserved={len(old_refs)}")
+    return {"ok": True, "new_person_id": new_person_id, "refs_preserved": len(old_refs)}
+
+
 @router.delete("/pets/{name}")
 async def delete_pet(name: str, local_only: bool = False):
     config = data.load_config(DATA_DIR)
@@ -403,9 +481,19 @@ async def remove_pet_asset(name: str, asset_id: str, crop_idx: Optional[int] = N
 # Ref suggestions
 # ---------------------------------------------------------------------------
 
+def _build_classifier_from_config(config: dict):
+    """Load all pet refs and return (names, clf, scaler), or None if no pets have refs."""
+    from classifier import build_classifier
+    all_pet_names = list(config.keys())
+    all_refs = {n: data.load_pet_refs(config[n].get("person_id") or n, DATA_DIR) for n in all_pet_names}
+    pet_names = [n for n in all_pet_names if all_refs.get(n)]
+    refs_per_pet = {n: all_refs[n] for n in pet_names}
+    negative_ids = data.load_negative_ids(DATA_DIR)
+    return build_classifier(pet_names, refs_per_pet, negative_ids)
+
+
 @router.get("/pets/{name}/suggestions")
 async def get_suggestions(name: str, limit: int = 20):
-    from classifier import build_classifier
     config = data.load_config(DATA_DIR)
     if name not in config:
         raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
@@ -441,14 +529,8 @@ async def get_suggestions(name: str, limit: int = 20):
     if not ref_ids:
         return {"assets": [_slim_asset(a) for a in candidates[:limit]]}
 
-    all_pet_names = list(config.keys())
-    all_refs = {n: data.load_pet_refs(config[n].get("person_id") or n, DATA_DIR) for n in all_pet_names}
-    pet_names = [n for n in all_pet_names if all_refs.get(n)]
-    refs_per_pet = {n: all_refs[n] for n in pet_names}
-    negative_ids = data.load_negative_ids(DATA_DIR)
-
     def compute():
-        result = build_classifier(pet_names, refs_per_pet, negative_ids)
+        result = _build_classifier_from_config(config)
         if result is None:
             return []
         names, clf, scaler = result
@@ -473,7 +555,7 @@ async def get_suggestions(name: str, limit: int = 20):
 
 @router.get("/pets/{name}/borderline")
 async def get_borderline(name: str, limit: int = 40):
-    from classifier import build_classifier
+    from poller import THRESHOLD
     config = data.load_config(DATA_DIR)
     if name not in config:
         raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
@@ -494,13 +576,6 @@ async def get_borderline(name: str, limit: int = 40):
     if not candidates:
         return {"assets": []}
 
-    all_pet_names = list(config.keys())
-    all_refs = {n: data.load_pet_refs(config[n].get("person_id") or n, DATA_DIR) for n in all_pet_names}
-    pet_names = [n for n in all_pet_names if all_refs.get(n)]
-    refs_per_pet = {n: all_refs[n] for n in pet_names}
-    negative_ids = data.load_negative_ids(DATA_DIR)
-
-    from poller import THRESHOLD
     LOW, HIGH = 0.3, THRESHOLD
 
     state.borderline_request_id += 1
@@ -511,7 +586,7 @@ async def get_borderline(name: str, limit: int = 40):
         state.borderline_progress["total"] = 0
         state.borderline_progress["running"] = True
         try:
-            result = build_classifier(pet_names, refs_per_pet, negative_ids)
+            result = _build_classifier_from_config(config)
             if result is None:
                 return []
             names, clf, scaler = result
@@ -541,7 +616,6 @@ async def get_borderline(name: str, limit: int = 40):
             if state.borderline_request_id == my_id:
                 state.borderline_progress["running"] = False
 
-    from poller import THRESHOLD
     scored = await asyncio.to_thread(compute)
     return {
         "assets": [slim for _, slim in scored],
@@ -556,7 +630,6 @@ async def get_borderline_progress(name: str):
 
 @router.get("/suggestions/negatives")
 async def get_neg_candidates(limit: int = 60):
-    from classifier import build_classifier
     from poller import THRESHOLD
     config = data.load_config(DATA_DIR)
 
@@ -581,10 +654,6 @@ async def get_neg_candidates(limit: int = 60):
     if not candidates:
         return {"assets": [], "threshold": THRESHOLD}
 
-    pet_names = [n for n in all_pet_names if all_refs.get(n)]
-    refs_per_pet = {n: all_refs[n] for n in pet_names}
-    negative_ids = data.load_negative_ids(DATA_DIR)
-
     state.neg_request_id += 1
     my_id = state.neg_request_id
 
@@ -593,7 +662,7 @@ async def get_neg_candidates(limit: int = 60):
         state.neg_progress["total"] = 0
         state.neg_progress["running"] = True
         try:
-            result = build_classifier(pet_names, refs_per_pet, negative_ids)
+            result = _build_classifier_from_config(config)
             if result is None:
                 return []
             names, clf, scaler = result

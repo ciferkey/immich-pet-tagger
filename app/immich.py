@@ -14,9 +14,24 @@ IMMICH_API_KEY = os.environ.get("IMMICH_API_KEY", "")
 
 FACE_BOX_SIZE = 256
 
+_owner_id: str | None = None
+
 
 def headers() -> dict:
     return {"x-api-key": IMMICH_API_KEY, "Accept": "application/json"}
+
+
+def get_owner_id() -> str | None:
+    """Return the user ID of the API key owner, cached after first call."""
+    global _owner_id
+    if _owner_id is None:
+        try:
+            r = requests.get(f"{IMMICH_URL}/api/users/me", headers=headers(), timeout=10)
+            if r.status_code == 200:
+                _owner_id = r.json().get("id")
+        except Exception as e:
+            log.warning(f"get_owner_id failed: {e}")
+    return _owner_id
 
 
 # ---------------------------------------------------------------------------
@@ -45,25 +60,23 @@ def _fetch_assets(query: dict, ts_field: str, label: str) -> list[tuple[str, str
     page = 1
     size = 1000
     while True:
-        try:
-            r = requests.post(url, json={**query, "page": page, "size": size, "order": "asc"}, headers=hdrs, timeout=30)
-            if r.status_code != 200:
-                log.warning(f"{label}: status={r.status_code} page={page}")
-                break
-            data = r.json()
-            block = data.get("assets") or {}
-            items = (block.get("items") if isinstance(block, dict) else None) or data.get("items") or []
-            for a in items:
-                aid = a.get("id")
-                ts = a.get(ts_field) or a.get("localDateTime") or ""
-                if aid and ts:
-                    out.append((str(aid).strip("\x00"), ts))
-            if len(items) < size:
-                break
-            page += 1
-        except Exception as e:
-            log.error(f"{label} error: {e}")
+        r = requests.post(url, json={**query, "page": page, "size": size, "order": "asc"}, headers=hdrs, timeout=30)
+        if r.status_code != 200:
+            raise RuntimeError(f"{label}: HTTP {r.status_code} on page {page}: {r.text[:200]}")
+        data = r.json()
+        block = data.get("assets") or {}
+        items = (block.get("items") if isinstance(block, dict) else None) or data.get("items") or []
+        owner_id = get_owner_id()
+        for a in items:
+            aid = a.get("id")
+            ts = a.get(ts_field) or a.get("localDateTime") or ""
+            if aid and ts:
+                if owner_id and a.get("ownerId") != owner_id:
+                    continue
+                out.append((str(aid).strip("\x00"), ts))
+        if len(items) < size:
             break
+        page += 1
     return out
 
 
@@ -75,8 +88,8 @@ def fetch_face_id_for_person(asset_id: str, person_id: str) -> str | None:
             for face in r.json():
                 if (face.get("person") or {}).get("id") == person_id:
                     return face.get("id")
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning(f"fetch_face_id_for_person {asset_id}: {e}")
     return None
 
 
