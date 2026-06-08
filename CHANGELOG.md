@@ -13,6 +13,7 @@
 - Embed cache is now capped with LRU eviction and batched disk saves, preventing unbounded memory growth on large libraries.
 - Fetch thumbnail timeout increased to 30s, fixing failures on remote or slower Immich setups.
 - Network errors (Immich unreachable, timeout) now surface as readable messages in the UI instead of a generic 500 error.
+- Long UI requests (Find missed, Find candidates, Find references) now stream keepalive bytes during CPU-heavy scoring so browsers no longer drop idle connections. Server-side limit is 120s (`LONG_REQUEST_TIMEOUT`).
 
 ---
 

@@ -193,6 +193,7 @@ After that, the background poller runs every 5 minutes and tags new photos autom
 | `YOLO_BATCH_SIZE` | `32` | Max images per YOLO inference batch. Reduce if you hit GPU out-of-memory errors. |
 | `EMBED_CACHE_SIZE` | `5000` | Max number of embeddings kept in the in-memory LRU cache. Older entries are evicted when the limit is reached. |
 | `THRESHOLD` | `0.8` | Min confidence (0–1) to tag a photo |
+| `LONG_REQUEST_TIMEOUT` | `120` | Max seconds for CPU-heavy UI requests (Find missed, Find candidates, Find references). Responses stream keepalive bytes so browsers do not drop idle connections. |
 
 ---
 

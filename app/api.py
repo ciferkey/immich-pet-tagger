@@ -32,6 +32,25 @@ router = APIRouter(prefix="/api")
 IMMICH_EXTERNAL_URL = os.environ.get("IMMICH_EXTERNAL_URL", "http://localhost:2283")
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 PETS_DIR = DATA_DIR / "pets"
+LONG_REQUEST_TIMEOUT = int(os.environ.get("LONG_REQUEST_TIMEOUT", 120))
+KEEPALIVE_INTERVAL = 15
+
+
+async def _streaming_json(coro):
+    """Stream JSON with periodic keepalive bytes while CPU-heavy work runs.
+    Browsers drop idle connections after ~90s with no response bytes."""
+    async def generate():
+        task = asyncio.create_task(coro)
+        while not task.done():
+            yield b" \n"
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=KEEPALIVE_INTERVAL)
+            except asyncio.TimeoutError:
+                continue
+        result = await task
+        yield json.dumps(result).encode()
+
+    return StreamingResponse(generate(), media_type="application/json")
 
 
 # ---------------------------------------------------------------------------
@@ -549,8 +568,14 @@ async def get_suggestions(name: str, limit: int = 20):
         scored.sort(key=lambda x: x[0], reverse=True)
         return [item for _, item in scored[:limit]]
 
-    results = await asyncio.to_thread(compute)
-    return {"assets": results}
+    async def build_response():
+        try:
+            results = await asyncio.wait_for(asyncio.to_thread(compute), timeout=LONG_REQUEST_TIMEOUT)
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail=f"Timed out after {LONG_REQUEST_TIMEOUT}s")
+        return {"assets": results}
+
+    return await _streaming_json(build_response())
 
 
 @router.get("/pets/{name}/borderline")
@@ -616,11 +641,17 @@ async def get_borderline(name: str, limit: int = 40):
             if state.borderline_request_id == my_id:
                 state.borderline_progress["running"] = False
 
-    scored = await asyncio.to_thread(compute)
-    return {
-        "assets": [slim for _, slim in scored],
-        "threshold": THRESHOLD,
-    }
+    async def build_response():
+        try:
+            scored = await asyncio.wait_for(asyncio.to_thread(compute), timeout=LONG_REQUEST_TIMEOUT)
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail=f"Timed out after {LONG_REQUEST_TIMEOUT}s")
+        return {
+            "assets": [slim for _, slim in scored],
+            "threshold": THRESHOLD,
+        }
+
+    return await _streaming_json(build_response())
 
 
 @router.get("/pets/{name}/borderline/progress")
@@ -686,11 +717,17 @@ async def get_neg_candidates(limit: int = 60):
             if state.neg_request_id == my_id:
                 state.neg_progress["running"] = False
 
-    scored = await asyncio.to_thread(compute)
-    return {
-        "assets": [{**_slim_asset(a), "score": round(prob, 3)} for prob, a in scored],
-        "threshold": THRESHOLD,
-    }
+    async def build_response():
+        try:
+            scored = await asyncio.wait_for(asyncio.to_thread(compute), timeout=LONG_REQUEST_TIMEOUT)
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail=f"Timed out after {LONG_REQUEST_TIMEOUT}s")
+        return {
+            "assets": [{**_slim_asset(a), "score": round(prob, 3)} for prob, a in scored],
+            "threshold": THRESHOLD,
+        }
+
+    return await _streaming_json(build_response())
 
 
 @router.get("/suggestions/negatives/progress")
