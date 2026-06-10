@@ -18,6 +18,8 @@ from pathlib import Path
 from embedder import load_embed_cache
 from poller import run_poll_cycle, migrate_ref_bboxes
 from api import router as api_router
+
+BASE_DIR = Path(__file__).resolve().parent
 import state
 
 logging.basicConfig(
@@ -62,7 +64,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Immich Pet Tagger", lifespan=lifespan)
 
 app.include_router(api_router)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
 @app.get("/health")
@@ -81,7 +83,7 @@ async def status():
 
 @app.get("/")
 async def root():
-    return FileResponse("static/index.html")
+    return FileResponse(str(BASE_DIR / "static" / "index.html"))
 
 
 if __name__ == "__main__":

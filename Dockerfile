@@ -54,14 +54,21 @@ FROM python:3.12-slim
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-WORKDIR /app
+# Set cache directories to /data to support read-only root FS
+ENV TORCH_HOME=/data/.cache/torch \
+    HF_HOME=/data/.cache/huggingface \
+    XDG_CACHE_HOME=/data/.cache \
+    ULTRALYTICS_CONFIG_DIR=/data/.ultralytics
 
-# /data is the mounted volume: pets/luna/, pets/config.json, state files, logs
+# Copy code to /app
+WORKDIR /app
+COPY VERSION .
+COPY app/ .
+
+# Use /data as the working directory so downloads (like YOLO models) go there
+WORKDIR /data
 VOLUME ["/data"]
 
 EXPOSE 8000
 
-COPY VERSION .
-COPY app/ .
-
-CMD ["python", "main.py"]
+CMD ["python", "/app/main.py"]
