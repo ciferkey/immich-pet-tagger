@@ -4,8 +4,11 @@
 
 ### Features
 - **Untag all photos in Immich**: new option in the pet delete modal that removes all Immich face tags and creates a fresh person, while keeping local reference images so you can start tagging again immediately.
+- **Faster "Find references"**: the trained classifier is now cached and crop embeddings are stored per asset in a local SQLite cache (`crops.db`), so repeat runs reuse prior work and return almost instantly instead of rescoring every candidate. The cache is keyed by asset and grows only with photos actually processed, not the whole library.
 
 ### Fixes
+- **Stable confidence scores**: negative sample selection during classifier training is now deterministic, so identical references and negatives always produce the same percentages instead of shifting between runs.
+- **Read-only root filesystem**: YOLO and CLIP model downloads are now redirected to the `/data` volume. Mount only `/data` for hardened deployments.
 - **Partner sharing**: assets not owned by the API key holder are now skipped during tagging. Previously, when partner sharing was enabled, the tagger would create cross-account face records that caused a `FOREIGN KEY constraint failed` crash on the partner's mobile sync stream.
 - Immich API errors are now propagated instead of silently returning empty results when asset searches fail.
 - All data file writes are now atomic (write to tmp, then replace) to prevent file corruption on crash or power loss.

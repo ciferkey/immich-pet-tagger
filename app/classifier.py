@@ -49,7 +49,7 @@ def build_classifier(
     if negative_ids:
         target = total_refs * 3
         if len(negative_ids) > target:
-            negative_ids = random.sample(negative_ids, target)
+            negative_ids = random.Random(0).sample(sorted(negative_ids), target)
             log.info(f"Subsampled negatives to {target} (3x {total_refs} refs)")
 
         log.info(f"Embedding {len(negative_ids)} negative samples...")

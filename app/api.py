@@ -2,6 +2,7 @@
 All Immich communication happens here; the browser never touches Immich directly."""
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -500,15 +501,41 @@ async def remove_pet_asset(name: str, asset_id: str, crop_idx: Optional[int] = N
 # Ref suggestions
 # ---------------------------------------------------------------------------
 
+def _classifier_fingerprint(pet_names: list[str], refs_per_pet: dict, negative_ids: list[str]) -> str:
+    """Stable hash of the inputs that define a trained classifier."""
+    parts = []
+    for name in sorted(pet_names):
+        parts.append(name + ":" + ",".join(sorted(r["asset_id"] for r in refs_per_pet[name])))
+    parts.append("neg:" + ",".join(sorted(negative_ids)))
+    return hashlib.md5("\n".join(parts).encode()).hexdigest()
+
+
 def _build_classifier_from_config(config: dict):
-    """Load all pet refs and return (names, clf, scaler), or None if no pets have refs."""
+    """Load all pet refs and return (names, clf, scaler), or None if no pets have refs.
+
+    The trained classifier is cached in memory and only rebuilt when the set of
+    refs or negatives changes. This avoids re-embedding every ref on each request
+    and keeps prediction scores stable between calls."""
     from classifier import build_classifier
     all_pet_names = list(config.keys())
     all_refs = {n: data.load_pet_refs(config[n].get("person_id") or n, DATA_DIR) for n in all_pet_names}
     pet_names = [n for n in all_pet_names if all_refs.get(n)]
     refs_per_pet = {n: all_refs[n] for n in pet_names}
     negative_ids = data.load_negative_ids(DATA_DIR)
-    return build_classifier(pet_names, refs_per_pet, negative_ids)
+
+    fp = _classifier_fingerprint(pet_names, refs_per_pet, negative_ids)
+    with state.classifier_cache_lock:
+        cached = state.classifier_cache
+        if cached is not None and cached["fingerprint"] == fp:
+            return cached["names"], cached["clf"], cached["scaler"]
+
+    result = build_classifier(pet_names, refs_per_pet, negative_ids)
+    if result is None:
+        return None
+    names, clf, scaler = result
+    with state.classifier_cache_lock:
+        state.classifier_cache = {"fingerprint": fp, "names": names, "clf": clf, "scaler": scaler}
+    return names, clf, scaler
 
 
 @router.get("/pets/{name}/suggestions")
