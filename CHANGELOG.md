@@ -1,14 +1,23 @@
 # Changelog
 
-## v1.4.0
+## v1.5.0
 
 ### Features
-- **Untag all photos in Immich**: new option in the pet delete modal that removes all Immich face tags and creates a fresh person, while keeping local reference images so you can start tagging again immediately.
 - **Faster "Find references"**: the trained classifier is now cached and crop embeddings are stored per asset in a local SQLite cache (`crops.db`), so repeat runs reuse prior work and return almost instantly instead of rescoring every candidate. The cache is keyed by asset and grows only with photos actually processed, not the whole library.
 
 ### Fixes
 - **Stable confidence scores**: negative sample selection during classifier training is now deterministic, so identical references and negatives always produce the same percentages instead of shifting between runs.
 - **Read-only root filesystem**: YOLO and CLIP model downloads are now redirected to the `/data` volume. Mount only `/data` for hardened deployments.
+- Long UI requests (Find missed, Find candidates, Find references) now stream keepalive bytes during CPU-heavy scoring so browsers no longer drop idle connections. Server-side limit is 120s (`LONG_REQUEST_TIMEOUT`).
+
+---
+
+## v1.4.0
+
+### Features
+- **Untag all photos in Immich**: new option in the pet delete modal that removes all Immich face tags and creates a fresh person, while keeping local reference images so you can start tagging again immediately.
+
+### Fixes
 - **Partner sharing**: assets not owned by the API key holder are now skipped during tagging. Previously, when partner sharing was enabled, the tagger would create cross-account face records that caused a `FOREIGN KEY constraint failed` crash on the partner's mobile sync stream.
 - Immich API errors are now propagated instead of silently returning empty results when asset searches fail.
 - All data file writes are now atomic (write to tmp, then replace) to prevent file corruption on crash or power loss.
@@ -16,7 +25,6 @@
 - Embed cache is now capped with LRU eviction and batched disk saves, preventing unbounded memory growth on large libraries.
 - Fetch thumbnail timeout increased to 30s, fixing failures on remote or slower Immich setups.
 - Network errors (Immich unreachable, timeout) now surface as readable messages in the UI instead of a generic 500 error.
-- Long UI requests (Find missed, Find candidates, Find references) now stream keepalive bytes during CPU-heavy scoring so browsers no longer drop idle connections. Server-side limit is 120s (`LONG_REQUEST_TIMEOUT`).
 
 ---
 
