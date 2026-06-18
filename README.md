@@ -67,7 +67,7 @@ environment:
 
 ### 4. Start the container
 
-The default configuration runs on CPU, which works for any machine without extra setup.
+The default configuration runs on CPU, which works for any machine (including ARM64 like Raspberry Pi or Apple Silicon) without extra setup.
 
 ```bash
 docker compose up -d
@@ -198,7 +198,7 @@ After that, the background poller runs every 5 minutes and tags new photos autom
 
 ## GPU support
 
-The default setup runs on CPU and requires no extra configuration. A GPU makes scans significantly faster but requires additional setup. Pre-built images are published for CPU, NVIDIA (default and legacy), and AMD/ROCm.
+The default setup runs on CPU and requires no extra configuration. A GPU makes scans significantly faster but requires additional setup. Pre-built images are published for CPU (AMD64 and ARM64), NVIDIA (AMD64), and AMD/ROCm (AMD64).
 
 **CPU (default):** no changes needed.
 
