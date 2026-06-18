@@ -978,6 +978,24 @@ async def person_thumbnail(person_id: str):
     return StreamingResponse(resp.aiter_bytes(), media_type=resp.headers.get("content-type", "image/jpeg"))
 
 
+# ---------------------------------------------------------------------------
+# Manual asset lookup (add a ref or negative by Immich link or ID)
+# ---------------------------------------------------------------------------
+
+@router.get("/asset/{asset_id}/crops")
+async def get_asset_crops(asset_id: str):
+    """Look up one asset by ID and return its detected animal crops, so a user can
+    manually add a reference or negative by pasting an Immich photo link or ID."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{imm.IMMICH_URL}/api/assets/{asset_id}", headers=imm.headers())
+    if resp.status_code != 200:
+        raise HTTPException(status_code=404, detail="Asset not found. Check the link or ID.")
+    meta = resp.json()
+    crops_embed = await asyncio.to_thread(emb.get_crops_and_embed, asset_id)
+    crops = [c for c, _ in crops_embed]
+    return {**_slim_asset(meta), "crops": crops}
+
+
 @router.get("/thumb/{asset_id}")
 async def thumbnail(asset_id: str):
     async with httpx.AsyncClient(timeout=15) as client:
