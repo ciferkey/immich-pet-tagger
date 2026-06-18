@@ -5,6 +5,7 @@ import logging
 import os
 import pickle
 import queue
+import sqlite3
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -31,6 +32,14 @@ _embed_cache: OrderedDict[str, list[np.ndarray]] = OrderedDict()
 _cache_path: Path | None = None
 _cache_dirty = False
 _cache_lock = threading.Lock()
+
+# Persistent crop cache: asset_id -> list of (bbox, vec) pairs, one per detected
+# animal crop. An empty list means "no animal here". Keyed only by asset_id:
+# embeddings depend only on the image, so entries are immutable and never
+# invalidated when pets or date ranges change. Populated lazily by whatever
+# touches an asset (poller, borderline, suggestions). Backed by SQLite so it
+# grows on disk only with the assets we actually process, not the whole library.
+_crops_db: sqlite3.Connection | None = None
 
 # ---------------------------------------------------------------------------
 # CLIP batch workers
@@ -172,20 +181,57 @@ def crop_animals(img: Image.Image) -> list[tuple[tuple, Image.Image]]:
     ]
 
 
+def _crops_to_result(pairs: list[tuple[list, np.ndarray]]) -> list[tuple[dict, np.ndarray]]:
+    return [({"crop_idx": i, "bbox": list(bbox)}, vec) for i, (bbox, vec) in enumerate(pairs)]
+
+
+def store_crops(asset_id: str, pairs: list[tuple[list, np.ndarray]]) -> None:
+    """Persist an asset's (bbox, vec) crop pairs. An empty list is stored too, marking
+    the asset as having no detectable animal so we never reprocess it. Keyed only by
+    asset_id and never invalidated, since embeddings depend only on the image."""
+    if _crops_db is None:
+        return
+    try:
+        blob = pickle.dumps(pairs)
+        with _cache_lock:
+            _crops_db.execute(
+                "INSERT INTO crops (asset_id, data) VALUES (?, ?) "
+                "ON CONFLICT(asset_id) DO UPDATE SET data = excluded.data",
+                (asset_id, blob),
+            )
+            _crops_db.commit()
+    except Exception as e:
+        log.warning(f"Could not store crops for {asset_id}: {e}")
+
+
+def _load_crops(asset_id: str) -> list[tuple[list, np.ndarray]] | None:
+    if _crops_db is None:
+        return None
+    try:
+        with _cache_lock:
+            row = _crops_db.execute("SELECT data FROM crops WHERE asset_id = ?", (asset_id,)).fetchone()
+        return pickle.loads(row[0]) if row is not None else None
+    except Exception as e:
+        log.warning(f"Could not read crops for {asset_id}: {e}")
+        return None
+
+
 def get_crops_and_embed(asset_id: str) -> list[tuple[dict, np.ndarray]]:
-    """Fetch thumbnail once, run YOLO, embed each crop. Returns [(crop_info, vec), ...]."""
+    """Fetch thumbnail once, run YOLO, embed each crop. Returns [(crop_info, vec), ...].
+    Cached per asset in crops.db and reused across all pets and requests."""
+    cached = _load_crops(asset_id)
+    if cached is not None:
+        return _crops_to_result(cached)
     img = fetch_thumbnail(asset_id)
     if img is None:
-        return []
-    crops = crop_animals(img)
-    if not crops:
-        return []
-    result = []
-    for i, (bbox, crop_img) in enumerate(crops):
+        return []  # transient fetch failure, do not cache
+    pairs: list[tuple[list, np.ndarray]] = []
+    for bbox, crop_img in crop_animals(img):
         vec = embed_image(crop_img)
         if vec is not None:
-            result.append(({"crop_idx": i, "bbox": list(bbox)}, vec))
-    return result
+            pairs.append((list(bbox), vec))
+    store_crops(asset_id, pairs)
+    return _crops_to_result(pairs)
 
 
 def embed_crop_by_bbox(asset_id: str, bbox: list) -> np.ndarray | None:
@@ -208,7 +254,7 @@ def embed_crop_by_bbox(asset_id: str, bbox: list) -> np.ndarray | None:
 
 
 def load_embed_cache(data_dir: Path) -> None:
-    global _cache_path
+    global _cache_path, _crops_db
     _cache_path = data_dir / "embeddings.pkl"
     if _cache_path.exists():
         try:
@@ -221,6 +267,18 @@ def load_embed_cache(data_dir: Path) -> None:
             log.info(f"Loaded {len(_embed_cache)} cached embeddings from {_cache_path}")
         except Exception as e:
             log.warning(f"Could not load embedding cache: {e}")
+
+    try:
+        _crops_db = sqlite3.connect(data_dir / "crops.db", check_same_thread=False)
+        _crops_db.execute("PRAGMA journal_mode=WAL")
+        _crops_db.execute("PRAGMA synchronous=NORMAL")
+        _crops_db.execute("CREATE TABLE IF NOT EXISTS crops (asset_id TEXT PRIMARY KEY, data BLOB NOT NULL)")
+        _crops_db.commit()
+        count = _crops_db.execute("SELECT COUNT(*) FROM crops").fetchone()[0]
+        log.info(f"Crop cache ready: {count} assets in crops.db")
+    except Exception as e:
+        log.warning(f"Could not open crops cache db: {e}")
+        _crops_db = None
 
 
 def _save_embed_cache() -> None:

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Immich Pet Tagger</title>
-<link rel="stylesheet" href="/static/style.css?v=2">
+<link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 <body>
 <div class="shell">
@@ -53,6 +53,7 @@
           <span style="font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--text3);" id="refsTitle">No pet selected</span>
           <div style="display:flex; gap:6px; align-items:center;">
             <button class="btn btn-primary" id="findRefsBtn" onclick="viewFindRefs()" style="display:none; font-size:12px; padding:5px 10px;">Find references</button>
+            <button class="btn" id="addByIdBtn" onclick="openAddById()" style="display:none; font-size:12px; padding:5px 10px;">Add manually</button>
             <button class="btn btn-danger" id="clearRefsBtn" onclick="clearAllRefs()" style="display:none; font-size:12px; padding:5px 10px;">Clear all</button>
           </div>
         </div>
@@ -66,6 +67,7 @@
             <span style="font-size:11px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--text3);">Not a pet <span style="font-weight:400;" id="negCount">0</span></span>
             <div style="display:flex; gap:6px; align-items:center;">
               <button class="btn" id="findNegsBtn" onclick="viewNegCandidates()" style="font-size:12px; padding:5px 10px;">Find candidates</button>
+              <button class="btn" id="addNegByIdBtn" onclick="openAddNegById()" style="font-size:12px; padding:5px 10px;">Add manually</button>
               <button class="btn btn-danger" id="clearNegsBtn" onclick="clearAllNegatives()" style="display:none; font-size:12px; padding:5px 10px;">Clear all</button>
             </div>
           </div>
@@ -202,8 +204,24 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="addByIdModal">
+  <div class="modal">
+    <h2 id="addByIdTitle">Add by ID or link</h2>
+    <div class="field">
+      <label>Immich photo link or asset ID</label>
+      <input type="text" id="addByIdInput" placeholder="immich:2283/photos/{UUID} or a bare ID" onkeydown="if(event.key==='Enter') submitAddById()">
+      <div class="hint" id="addByIdHint"></div>
+    </div>
+    <div class="modal-error" id="addByIdError"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeAddById()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitAddById()">Add</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
-<script src="/static/app.js?v=2"></script>
+<script src="/static/app.js?v=3"></script>
 </body>
 </html>

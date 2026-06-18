@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.5.0
+
+### Features
+- **Faster "Find references"**: the trained classifier is now cached and crop embeddings are stored per asset in a local SQLite cache (`crops.db`), so repeat runs reuse prior work and return almost instantly instead of rescoring every candidate. The cache is keyed by asset and grows only with photos actually processed, not the whole library.
+- **Add references and negatives by link**: new "Add manually" button in both the references panel and the "Not a pet" panel. Paste any Immich photo URL or bare asset ID to add it directly, without going through the suggestion flow.
+- **ARM64 image**: the `:cpu` image is now published for `linux/arm64` (Raspberry Pi, Apple Silicon) in addition to `amd64`.
+
+### Fixes
+- **Stable confidence scores**: negative sample selection during classifier training is now deterministic, so identical references and negatives always produce the same percentages instead of shifting between runs.
+- **Read-only root filesystem**: YOLO and CLIP model downloads are now redirected to the `/data` volume. Mount only `/data` for hardened deployments.
+- Long UI requests (Find missed, Find candidates, Find references) now stream keepalive bytes during CPU-heavy scoring so browsers no longer drop idle connections. Server-side limit is 120s (`LONG_REQUEST_TIMEOUT`).
+
+---
+
 ## v1.4.0
 
 ### Features

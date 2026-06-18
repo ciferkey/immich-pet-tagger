@@ -31,6 +31,7 @@ log = logging.getLogger("main")
 
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", 300))
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
+LONG_REQUEST_TIMEOUT = int(os.environ.get("LONG_REQUEST_TIMEOUT", 120))
 
 
 async def polling_loop():
@@ -87,4 +88,11 @@ async def root():
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False, log_level="info")
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=False,
+        log_level="info",
+        timeout_keep_alive=LONG_REQUEST_TIMEOUT,
+    )

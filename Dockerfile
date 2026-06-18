@@ -54,11 +54,15 @@ FROM python:3.12-slim
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Set cache directories to /data to support read-only root FS
-ENV TORCH_HOME=/data/.cache/torch \
+# Set cache directories to /data to support read-only root FS.
+# HOME is required: open_clip downloads the openai CLIP weights to a hardcoded
+# ~/.cache/clip path that ignores XDG_CACHE_HOME, TORCH_HOME and HF_HOME, so
+# without HOME they fall back to /root and crash a read-only root filesystem.
+ENV HOME=/data \
+    TORCH_HOME=/data/.cache/torch \
     HF_HOME=/data/.cache/huggingface \
     XDG_CACHE_HOME=/data/.cache \
-    ULTRALYTICS_CONFIG_DIR=/data/.ultralytics
+    YOLO_CONFIG_DIR=/data/.ultralytics
 
 # Copy code to /app
 WORKDIR /app

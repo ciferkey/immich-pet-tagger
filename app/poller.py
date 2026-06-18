@@ -169,12 +169,19 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
             with _count_lock:
                 counts["no_thumb"] += 1
             return
-        crops = emb.crop_animals(img)
-        if not crops:
+        detected = emb.crop_animals(img)
+        if not detected:
             crops = [(None, img)]
-        elif len(crops) > 1:
-            log.info(f"YOLO detected {len(crops)} animals in {aid} ({time_str[:10]})")
+        else:
+            crops = detected
+            if len(detected) > 1:
+                log.info(f"YOLO detected {len(detected)} animals in {aid} ({time_str[:10]})")
         vecs = [(bbox_norm, emb.embed_image(crop)) for bbox_norm, crop in crops]
+
+        # Populate the crop cache so borderline and suggestions can reuse this
+        # work without re-fetching and re-embedding. Only real animal crops are
+        # stored; an empty list marks "no animal detected".
+        emb.store_crops(aid, [(b, v) for b, v in vecs if b is not None and v is not None])
 
         existing_persons: set | None = None
         tagged_in_photo: set[str] = set()

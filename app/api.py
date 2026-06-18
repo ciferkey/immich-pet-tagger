@@ -2,6 +2,7 @@
 All Immich communication happens here; the browser never touches Immich directly."""
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -32,6 +33,25 @@ router = APIRouter(prefix="/api")
 IMMICH_EXTERNAL_URL = os.environ.get("IMMICH_EXTERNAL_URL", "http://localhost:2283")
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 PETS_DIR = DATA_DIR / "pets"
+LONG_REQUEST_TIMEOUT = int(os.environ.get("LONG_REQUEST_TIMEOUT", 120))
+KEEPALIVE_INTERVAL = 15
+
+
+async def _streaming_json(coro):
+    """Stream JSON with periodic keepalive bytes while CPU-heavy work runs.
+    Browsers drop idle connections after ~90s with no response bytes."""
+    async def generate():
+        task = asyncio.create_task(coro)
+        while not task.done():
+            yield b" \n"
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=KEEPALIVE_INTERVAL)
+            except asyncio.TimeoutError:
+                continue
+        result = await task
+        yield json.dumps(result).encode()
+
+    return StreamingResponse(generate(), media_type="application/json")
 
 
 # ---------------------------------------------------------------------------
@@ -481,15 +501,41 @@ async def remove_pet_asset(name: str, asset_id: str, crop_idx: Optional[int] = N
 # Ref suggestions
 # ---------------------------------------------------------------------------
 
+def _classifier_fingerprint(pet_names: list[str], refs_per_pet: dict, negative_ids: list[str]) -> str:
+    """Stable hash of the inputs that define a trained classifier."""
+    parts = []
+    for name in sorted(pet_names):
+        parts.append(name + ":" + ",".join(sorted(r["asset_id"] for r in refs_per_pet[name])))
+    parts.append("neg:" + ",".join(sorted(negative_ids)))
+    return hashlib.md5("\n".join(parts).encode()).hexdigest()
+
+
 def _build_classifier_from_config(config: dict):
-    """Load all pet refs and return (names, clf, scaler), or None if no pets have refs."""
+    """Load all pet refs and return (names, clf, scaler), or None if no pets have refs.
+
+    The trained classifier is cached in memory and only rebuilt when the set of
+    refs or negatives changes. This avoids re-embedding every ref on each request
+    and keeps prediction scores stable between calls."""
     from classifier import build_classifier
     all_pet_names = list(config.keys())
     all_refs = {n: data.load_pet_refs(config[n].get("person_id") or n, DATA_DIR) for n in all_pet_names}
     pet_names = [n for n in all_pet_names if all_refs.get(n)]
     refs_per_pet = {n: all_refs[n] for n in pet_names}
     negative_ids = data.load_negative_ids(DATA_DIR)
-    return build_classifier(pet_names, refs_per_pet, negative_ids)
+
+    fp = _classifier_fingerprint(pet_names, refs_per_pet, negative_ids)
+    with state.classifier_cache_lock:
+        cached = state.classifier_cache
+        if cached is not None and cached["fingerprint"] == fp:
+            return cached["names"], cached["clf"], cached["scaler"]
+
+    result = build_classifier(pet_names, refs_per_pet, negative_ids)
+    if result is None:
+        return None
+    names, clf, scaler = result
+    with state.classifier_cache_lock:
+        state.classifier_cache = {"fingerprint": fp, "names": names, "clf": clf, "scaler": scaler}
+    return names, clf, scaler
 
 
 @router.get("/pets/{name}/suggestions")
@@ -549,8 +595,14 @@ async def get_suggestions(name: str, limit: int = 20):
         scored.sort(key=lambda x: x[0], reverse=True)
         return [item for _, item in scored[:limit]]
 
-    results = await asyncio.to_thread(compute)
-    return {"assets": results}
+    async def build_response():
+        try:
+            results = await asyncio.wait_for(asyncio.to_thread(compute), timeout=LONG_REQUEST_TIMEOUT)
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail=f"Timed out after {LONG_REQUEST_TIMEOUT}s")
+        return {"assets": results}
+
+    return await _streaming_json(build_response())
 
 
 @router.get("/pets/{name}/borderline")
@@ -616,11 +668,17 @@ async def get_borderline(name: str, limit: int = 40):
             if state.borderline_request_id == my_id:
                 state.borderline_progress["running"] = False
 
-    scored = await asyncio.to_thread(compute)
-    return {
-        "assets": [slim for _, slim in scored],
-        "threshold": THRESHOLD,
-    }
+    async def build_response():
+        try:
+            scored = await asyncio.wait_for(asyncio.to_thread(compute), timeout=LONG_REQUEST_TIMEOUT)
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail=f"Timed out after {LONG_REQUEST_TIMEOUT}s")
+        return {
+            "assets": [slim for _, slim in scored],
+            "threshold": THRESHOLD,
+        }
+
+    return await _streaming_json(build_response())
 
 
 @router.get("/pets/{name}/borderline/progress")
@@ -686,11 +744,17 @@ async def get_neg_candidates(limit: int = 60):
             if state.neg_request_id == my_id:
                 state.neg_progress["running"] = False
 
-    scored = await asyncio.to_thread(compute)
-    return {
-        "assets": [{**_slim_asset(a), "score": round(prob, 3)} for prob, a in scored],
-        "threshold": THRESHOLD,
-    }
+    async def build_response():
+        try:
+            scored = await asyncio.wait_for(asyncio.to_thread(compute), timeout=LONG_REQUEST_TIMEOUT)
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail=f"Timed out after {LONG_REQUEST_TIMEOUT}s")
+        return {
+            "assets": [{**_slim_asset(a), "score": round(prob, 3)} for prob, a in scored],
+            "threshold": THRESHOLD,
+        }
+
+    return await _streaming_json(build_response())
 
 
 @router.get("/suggestions/negatives/progress")
@@ -912,6 +976,24 @@ async def person_thumbnail(person_id: str):
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code)
     return StreamingResponse(resp.aiter_bytes(), media_type=resp.headers.get("content-type", "image/jpeg"))
+
+
+# ---------------------------------------------------------------------------
+# Manual asset lookup (add a ref or negative by Immich link or ID)
+# ---------------------------------------------------------------------------
+
+@router.get("/asset/{asset_id}/crops")
+async def get_asset_crops(asset_id: str):
+    """Look up one asset by ID and return its detected animal crops, so a user can
+    manually add a reference or negative by pasting an Immich photo link or ID."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{imm.IMMICH_URL}/api/assets/{asset_id}", headers=imm.headers())
+    if resp.status_code != 200:
+        raise HTTPException(status_code=404, detail="Asset not found. Check the link or ID.")
+    meta = resp.json()
+    crops_embed = await asyncio.to_thread(emb.get_crops_and_embed, asset_id)
+    crops = [c for c, _ in crops_embed]
+    return {**_slim_asset(meta), "crops": crops}
 
 
 @router.get("/thumb/{asset_id}")

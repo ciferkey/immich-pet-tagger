@@ -46,6 +46,7 @@ function renderSidebar() {
     showGuide();
     document.getElementById('refsTitle').textContent = 'No pet selected';
     document.getElementById('findRefsBtn').style.display = 'none';
+    document.getElementById('addByIdBtn').style.display = 'none';
     document.getElementById('clearRefsBtn').style.display = 'none';
     document.getElementById('refsGrid').innerHTML = '<div class="empty" style="grid-column:1/-1;height:200px;"><div class="empty-sub">Add a pet first</div></div>';
     return;
@@ -67,8 +68,8 @@ function showGuide() {
   document.getElementById('photoGrid').innerHTML = `<div class="guide" style="grid-column:1/-1">
     <div class="guide-steps">
       <div class="guide-step"><div class="guide-step-num">1</div><div class="guide-step-body"><div class="guide-step-title">Add your pet</div><div class="guide-step-desc">Click <strong>↓ Import from Immich</strong> if Immich already recognizes your pet as a person. Otherwise click <strong>+ Add pet</strong> to start from scratch.</div></div></div>
-      <div class="guide-step"><div class="guide-step-num">2</div><div class="guide-step-body"><div class="guide-step-title">Find reference photos</div><div class="guide-step-desc">Select your pet and click <strong>Find references</strong>. Aim for 20–30 to start; results improve up to around 50.<ul style="margin:6px 0 0 16px;padding:0;"><li><strong>Add to pet</strong>: clear, close-up shot, your pet is the only subject.</li><li><strong>Ignore</strong>: blurry, distant, another person or animal visible alongside your pet, or a look-alike that is not yours. Ignored photos won't appear again.</li><li><strong>Not a pet</strong>: photos that could confuse the classifier. Empty rooms, other species, ambiguous shots. Around 50 is enough.</li></ul></div></div></div>
-      <div class="guide-step"><div class="guide-step-num">3</div><div class="guide-step-body"><div class="guide-step-title">Add "not a pet" samples</div><div class="guide-step-desc">These teach the classifier what not to tag: empty rooms, other animals of a different species, ambiguous shots with no clear subject. Without them, the classifier will tag almost anything. In the <strong>Not a pet</strong> panel, click <strong>Find candidates</strong> to automatically surface more photos that might confuse the classifier.</div></div></div>
+      <div class="guide-step"><div class="guide-step-num">2</div><div class="guide-step-body"><div class="guide-step-title">Find reference photos</div><div class="guide-step-desc">Select your pet and click <strong>Find references</strong>. Aim for 20–30 to start; results improve up to around 50.<ul style="margin:6px 0 0 16px;padding:0;"><li><strong>Add to pet</strong>: clear, close-up shot, your pet is the only subject.</li><li><strong>Ignore</strong>: blurry, distant, another person or animal visible alongside your pet, or a look-alike that is not yours. Ignored photos won't appear again.</li><li><strong>Not a pet</strong>: photos that could confuse the classifier. Empty rooms, other species, ambiguous shots. Around 50 is enough.</li></ul>If you already know a specific photo you want to use, click <strong>Add manually</strong> and paste its Immich URL or asset ID.</div></div></div>
+      <div class="guide-step"><div class="guide-step-num">3</div><div class="guide-step-body"><div class="guide-step-title">Add "not a pet" samples</div><div class="guide-step-desc">These teach the classifier what not to tag: empty rooms, other animals of a different species, ambiguous shots with no clear subject. Without them, the classifier will tag almost anything. In the <strong>Not a pet</strong> panel, click <strong>Find candidates</strong> to automatically surface more photos that might confuse the classifier. To add a specific photo directly, click <strong>Add manually</strong> and paste its Immich URL or asset ID.</div></div></div>
       <div class="guide-step"><div class="guide-step-num">4</div><div class="guide-step-body"><div class="guide-step-title">Run a test scan</div><div class="guide-step-desc">Set the <strong>Scan from</strong> date 1–2 weeks back and click <strong>Scan</strong>. Review low confidence results: add correct ones as refs, and click <strong>Ignore</strong> on the rest. Ignored photos won't appear again.</div></div></div>
       <div class="guide-step"><div class="guide-step-num">5</div><div class="guide-step-body"><div class="guide-step-title">Iterate</div><div class="guide-step-desc">Repeat steps 2–4 a couple of times. Results typically stabilize after 2–3 rounds.</div></div></div>
       <div class="guide-step"><div class="guide-step-num">6</div><div class="guide-step-body"><div class="guide-step-title">Run the full backfill</div><div class="guide-step-desc">Once happy with accuracy, set the scan date to when you got your pet and run the full scan. After that, new photos are tagged automatically every 5 minutes.</div></div></div>
@@ -94,6 +95,7 @@ async function selectPet(name) {
   clearSearch(); renderSidebar();
   document.getElementById('refsTitle').textContent = name;
   document.getElementById('findRefsBtn').style.display = '';
+  document.getElementById('addByIdBtn').style.display = '';
   document.getElementById('clearRefsBtn').style.display = '';
   await loadRefs(name);
   await loadNegatives();
@@ -219,6 +221,100 @@ function viewFindRefs() {
   if (!activePet) return;
   if (activePet.ref_count > 0) viewBorderline();
   else viewSuggestions();
+}
+
+// ---------------------------------------------------------------------------
+// Add by ID / link (refs and negatives)
+// ---------------------------------------------------------------------------
+
+let _addByIdMode = 'ref'; // 'ref' | 'neg'
+
+function parseAssetId(input) {
+  const s = (input || '').trim();
+  const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+  const afterPhotos = s.match(new RegExp('photos/(' + UUID + ')', 'i'));
+  if (afterPhotos) return afterPhotos[1];
+  const any = s.match(new RegExp(UUID, 'i'));
+  return any ? any[0] : null;
+}
+
+function _openAddByIdModal(mode) {
+  _addByIdMode = mode;
+  document.getElementById('addByIdInput').value = '';
+  clearModalError('addByIdError');
+  const example = 'e.g. a1b2c3d4-11aa-22bb-33cc-4d5e6f7a8b9c';
+  if (mode === 'neg') {
+    document.getElementById('addByIdTitle').textContent = 'Add "not a pet" by ID or link';
+    document.getElementById('addByIdHint').textContent = `Paste an Immich photo URL or just the asset ID (${example}). It will be added directly to "not a pet".`;
+  } else {
+    document.getElementById('addByIdTitle').textContent = 'Add reference by ID or link';
+    document.getElementById('addByIdHint').textContent = `Paste an Immich photo URL or just the asset ID (${example}). If one animal is detected it is added immediately; multiple crops let you pick the right one.`;
+  }
+  document.getElementById('addByIdModal').classList.add('open');
+  setTimeout(() => document.getElementById('addByIdInput').focus(), 100);
+}
+
+function openAddById() { if (activePet) _openAddByIdModal('ref'); }
+function openAddNegById() { _openAddByIdModal('neg'); }
+
+function closeAddById() {
+  document.getElementById('addByIdModal').classList.remove('open');
+  clearModalError('addByIdError');
+}
+
+async function submitAddById() {
+  clearModalError('addByIdError');
+  const id = parseAssetId(document.getElementById('addByIdInput').value);
+  if (!id) { modalError('addByIdError', 'Could not find an asset ID. Paste an Immich photo link or the bare ID.'); return; }
+
+  if (_addByIdMode === 'neg') {
+    try {
+      await api(`/api/asset/${id}/crops`); // validates asset exists
+      await api('/api/negatives', { method: 'POST', body: { asset_ids: [id] } });
+      closeAddById();
+      await loadNegatives();
+      toast('Added to "not a pet"', 'success');
+    } catch(e) {
+      let msg = e.message || 'Could not load asset';
+      try { const j = JSON.parse(msg); if (j.detail) msg = j.detail; } catch(_) {}
+      modalError('addByIdError', msg);
+    }
+    return;
+  }
+
+  // ref mode
+  if (!activePet) return;
+  const pet = activePet;
+  try {
+    const a = await api(`/api/asset/${id}/crops`);
+    const crops = a.crops || [];
+    if (crops.length <= 1) {
+      // 0 or 1 crop: add immediately, no picker needed
+      const existing = refsItems.map(r => ({ asset_id: r.id, crop_idx: r.crop_idx, bbox: r.bbox }));
+      const newCrop = crops.length === 1
+        ? { asset_id: id, crop_idx: crops[0].crop_idx, bbox: crops[0].bbox }
+        : { asset_id: id, crop_idx: null, bbox: null };
+      const alreadyPresent = existing.some(r => r.asset_id === id);
+      if (!alreadyPresent) existing.push(newCrop);
+      await api(`/api/pets/${encodeURIComponent(pet.name)}/assets`, { method: 'POST', body: { assets: existing } });
+      closeAddById();
+      await loadRefs(pet.name);
+      await refreshState();
+      toast(`Added to ${pet.name}`, 'success');
+    } else {
+      // Multiple crops: load into grid so user picks the right animal
+      closeAddById();
+      negCandidateMode = false; borderlineMode = false; scanLowConfMode = false;
+      selectedCrops.clear(); lastClickedKey = null; updateSelUI();
+      document.getElementById('resultsLabel').textContent = `${crops.length} pets detected. Select the one to add as reference`;
+      document.getElementById('photoGrid').innerHTML = renderPhotoItems(a, 0.8).join('');
+      markGridItems([a]);
+    }
+  } catch(e) {
+    let msg = e.message || 'Could not load asset';
+    try { const j = JSON.parse(msg); if (j.detail) msg = j.detail; } catch(_) {}
+    modalError('addByIdError', msg);
+  }
 }
 
 async function viewSuggestions() {

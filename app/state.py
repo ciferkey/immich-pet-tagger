@@ -11,6 +11,12 @@ borderline_request_id: int = 0
 manual_scan_result: dict | None = None
 scan_low_conf_assets: list = []
 
+# Trained classifier cache shared across API endpoints. Rebuilt only when the
+# set of refs or negatives changes (tracked via fingerprint). Reusing the same
+# trained model also keeps prediction scores stable between requests.
+classifier_cache: dict | None = None
+classifier_cache_lock = threading.Lock()
+
 
 def init():
     global scan_lock
