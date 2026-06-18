@@ -147,12 +147,15 @@ References are what the classifier learns from. Quality matters more than quanti
    - **Ignore**: blurry, distant, another person or animal visible alongside your pet, or a look-alike that is not yours. Ignored photos won't appear again.
    - **Not a pet**: photos that could confuse the classifier. Empty rooms, other species, ambiguous shots. Around 50 is enough.
 
+If you already know a specific photo you want to use, click **Add manually** and paste the Immich photo URL or asset ID directly.
+
 ### Step 3: Add "not a pet" samples
 
 These teach the classifier what not to tag: empty rooms, other animals of a different species, ambiguous shots with no clear subject. Without them, the classifier will tag almost anything.
 
 1. In the **Not a pet** panel (bottom right of the screen), click **Find candidates** to automatically surface more photos that might confuse the classifier
 2. Select the relevant ones and click **Not a pet**
+3. To add a specific photo directly, click **Add manually** and paste its Immich URL or asset ID
 
 
 ### Step 4: Run a test scan
