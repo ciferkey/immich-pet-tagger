@@ -123,7 +123,7 @@ async def _visual_search(
     else:
         sampled = ref_ids
 
-    base: dict = {"type": "IMAGE", "limit": per_ref_limit}
+    base: dict = {"type": "IMAGE", "size": per_ref_limit}
     if pet_cfg.get("since"):
         base["takenAfter"] = pet_cfg["since"] + "T00:00:00.000Z"
     if pet_cfg.get("until"):
@@ -558,7 +558,7 @@ async def get_suggestions(name: str, limit: int = 20):
         if ref_ids:
             candidates = await _visual_search(client, ref_ids, pet_cfg, exclude)
         else:
-            body: dict = {"query": description, "type": "IMAGE", "limit": 60}
+            body: dict = {"query": description, "type": "IMAGE", "size": 60}
             if pet_cfg.get("since"):
                 body["takenAfter"] = pet_cfg["since"] + "T00:00:00.000Z"
             if pet_cfg.get("until"):
@@ -702,7 +702,7 @@ async def get_neg_candidates(limit: int = 60):
         resp = await client.post(
             f"{imm.IMMICH_URL}/api/search/random",
             headers=imm.headers(),
-            json={"count": 50, "type": "IMAGE"},
+            json={"size": 50, "type": "IMAGE"},
         )
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
