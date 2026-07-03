@@ -76,7 +76,7 @@ docker compose logs -f   # watch startup logs
 
 If you want GPU acceleration, see [GPU support](#gpu-support) before running.
 
-On first start, the YOLO model (~6 MB) and CLIP model (~350 MB) are downloaded and saved to the /data volume. Subsequent starts are fast and work without an internet connection.
+On first start, the YOLO model (~6 MB) and CLIP model (~350 MB) are downloaded and saved to the /data volume. Subsequent starts are fast and work without an internet connection. The container must have internet access on this first start.
 
 
 ### Read-Only Root Filesystem

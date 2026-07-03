@@ -18,6 +18,14 @@ async function refreshState() {
   try {
     const cfg = await api('/api/config');
     immichUrl = cfg.immich_external_url.replace(/\/$/, '');
+    const banner = document.getElementById('modelsBanner');
+    if (!cfg.models_ready) {
+      const err = cfg.models_error ? ` Details: ${cfg.models_error}` : '';
+      banner.innerHTML = '<strong>Models not ready.</strong> On first start, yolov8n.pt (~6 MB) and the CLIP model (~350 MB) are downloaded. Ensure the container has internet access, then wait a moment and reload. To use offline, copy the model files to the data volume (see README).' + (err ? `<br>${err}` : '');
+      banner.classList.add('visible');
+    } else {
+      banner.classList.remove('visible');
+    }
   } catch(e) {}
   await loadPets();
   loadNegatives();

@@ -67,6 +67,7 @@ _clip_worker_lock = threading.Lock()
 _clip_batch_total = 0
 _clip_batch_count = 0
 _stats_lock = threading.Lock()
+_clip_load_error: str | None = None
 
 
 def reset_batch_stats() -> None:
@@ -80,12 +81,29 @@ def get_avg_batch_size() -> float:
         return _clip_batch_total / _clip_batch_count if _clip_batch_count else 0.0
 
 
+def is_clip_ready() -> bool:
+    return _clip_preprocess_ready.is_set()
+
+
+def get_clip_error() -> str | None:
+    return _clip_load_error
+
+
 def _clip_batch_loop(worker_id: int) -> None:
-    global _clip_batch_total, _clip_batch_count, _clip_preprocess_fn
+    global _clip_batch_total, _clip_batch_count, _clip_preprocess_fn, _clip_load_error
     device = "cuda" if torch.cuda.is_available() else "cpu"
     log.info(f"CLIP worker {worker_id} loading on {device}...")
-    model, preprocess, _ = open_clip.create_model_and_transforms(CLIP_MODEL_NAME, pretrained=CLIP_PRETRAINED)
-    model.eval().to(device)
+    try:
+        model, preprocess, _ = open_clip.create_model_and_transforms(CLIP_MODEL_NAME, pretrained=CLIP_PRETRAINED)
+        model.eval().to(device)
+    except Exception as e:
+        _clip_load_error = str(e)
+        log.error(
+            f"CLIP worker {worker_id} failed to load: {e}. "
+            "On first start the CLIP model is downloaded (~350 MB). "
+            "Ensure the container has internet access, then restart."
+        )
+        return
     if not _clip_preprocess_ready.is_set():
         _clip_preprocess_fn = preprocess
         _clip_preprocess_ready.set()
@@ -158,11 +176,13 @@ def fetch_thumbnail(asset_id: str) -> Image.Image | None:
 
 def embed_image(img: Image.Image) -> np.ndarray | None:
     _ensure_clip_workers()
-    _clip_preprocess_ready.wait()  # blocks only until first CLIP worker is up
+    if not _clip_preprocess_ready.wait(timeout=300):  # 300 s covers a slow first-start download
+        raise RuntimeError("CLIP worker did not respond within 300 s. Model may still be downloading.")
     tensor = _clip_preprocess_fn(img)  # CPU preprocessing in caller's thread
     req = _EmbedReq(tensor)
     _embed_queue.put(req)
-    req.event.wait()
+    if not req.event.wait(timeout=120):
+        raise RuntimeError("CLIP worker did not respond within 120 s.")
     return req.result
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.5.1
+
+### Fixes
+- **Model download failures no longer hang silently**: YOLO and CLIP workers now start at container boot. If a download fails (e.g. no internet on first start), the error is logged immediately and any inference action returns a clear error instead of hanging forever.
+- **UI warning banner**: a banner is shown when models are not ready yet, with instructions to ensure internet access on first start.
+- Immich 3.0.0 search endpoints now correctly use the `size` parameter.
+
 ## v1.5.0
 
 ### Features
