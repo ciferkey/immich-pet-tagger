@@ -18,6 +18,8 @@ from pathlib import Path
 from embedder import load_embed_cache
 from poller import run_poll_cycle, migrate_ref_bboxes
 from api import router as api_router
+import detector as det
+import embedder as emb
 
 BASE_DIR = Path(__file__).resolve().parent
 import state
@@ -53,6 +55,9 @@ async def lifespan(app: FastAPI):
     state.init()
     load_embed_cache(Path(DATA_DIR))
     await asyncio.to_thread(migrate_ref_bboxes, Path(DATA_DIR))
+    # Start model workers eagerly so downloads begin at boot and failures appear in startup logs.
+    det._ensure_yolo_workers()
+    emb._ensure_clip_workers()
     task = asyncio.create_task(polling_loop())
     yield
     task.cancel()
@@ -79,6 +84,10 @@ async def status():
         "poll_interval": POLL_INTERVAL,
         "data_dir": DATA_DIR,
         "immich_url": os.environ.get("IMMICH_URL", "not set"),
+        "yolo_ready": det.is_yolo_ready(),
+        "clip_ready": emb.is_clip_ready(),
+        "yolo_error": det.get_yolo_error(),
+        "clip_error": emb.get_clip_error(),
     }
 
 

@@ -21,6 +21,7 @@ from pydantic import BaseModel
 import io
 
 import data
+import detector as det
 import embedder as emb
 import immich as imm
 import state
@@ -99,7 +100,25 @@ async def get_version():
 
 @router.get("/config")
 async def get_config():
-    return {"immich_external_url": IMMICH_EXTERNAL_URL}
+    return {
+        "immich_external_url": IMMICH_EXTERNAL_URL,
+        "models_ready": det.is_yolo_ready() and emb.is_clip_ready(),
+        "models_error": det.get_yolo_error() or emb.get_clip_error(),
+    }
+
+
+def _require_inference():
+    """Raise 503 immediately if models are not ready, with an actionable message."""
+    if not det.is_yolo_ready() or not emb.is_clip_ready():
+        err = det.get_yolo_error() or emb.get_clip_error()
+        detail = (
+            f"Models are not ready yet: {err}"
+            if err
+            else "Models are still loading. On first start, yolov8n.pt (~6 MB) and the CLIP model (~350 MB) are downloaded. "
+                 "Ensure the container has internet access, then retry. "
+                 "To use offline, copy the model files to the data volume manually (see README)."
+        )
+        raise HTTPException(status_code=503, detail=detail)
 
 
 def _slim_asset(a: dict) -> dict:
@@ -123,7 +142,7 @@ async def _visual_search(
     else:
         sampled = ref_ids
 
-    base: dict = {"type": "IMAGE", "limit": per_ref_limit}
+    base: dict = {"type": "IMAGE", "size": per_ref_limit}
     if pet_cfg.get("since"):
         base["takenAfter"] = pet_cfg["since"] + "T00:00:00.000Z"
     if pet_cfg.get("until"):
@@ -540,6 +559,7 @@ def _build_classifier_from_config(config: dict):
 
 @router.get("/pets/{name}/suggestions")
 async def get_suggestions(name: str, limit: int = 20):
+    _require_inference()
     config = data.load_config(DATA_DIR)
     if name not in config:
         raise HTTPException(status_code=404, detail=f"Pet '{name}' not found")
@@ -558,7 +578,7 @@ async def get_suggestions(name: str, limit: int = 20):
         if ref_ids:
             candidates = await _visual_search(client, ref_ids, pet_cfg, exclude)
         else:
-            body: dict = {"query": description, "type": "IMAGE", "limit": 60}
+            body: dict = {"query": description, "type": "IMAGE", "size": 60}
             if pet_cfg.get("since"):
                 body["takenAfter"] = pet_cfg["since"] + "T00:00:00.000Z"
             if pet_cfg.get("until"):
@@ -607,6 +627,7 @@ async def get_suggestions(name: str, limit: int = 20):
 
 @router.get("/pets/{name}/borderline")
 async def get_borderline(name: str, limit: int = 40):
+    _require_inference()
     from poller import THRESHOLD
     config = data.load_config(DATA_DIR)
     if name not in config:
@@ -688,6 +709,7 @@ async def get_borderline_progress(name: str):
 
 @router.get("/suggestions/negatives")
 async def get_neg_candidates(limit: int = 60):
+    _require_inference()
     from poller import THRESHOLD
     config = data.load_config(DATA_DIR)
 
@@ -702,7 +724,7 @@ async def get_neg_candidates(limit: int = 60):
         resp = await client.post(
             f"{imm.IMMICH_URL}/api/search/random",
             headers=imm.headers(),
-            json={"count": 50, "type": "IMAGE"},
+            json={"size": 50, "type": "IMAGE"},
         )
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
@@ -788,6 +810,7 @@ class PetImport(BaseModel):
 
 @router.post("/pets/import")
 async def import_pet(body: PetImport):
+    _require_inference()
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name cannot be empty")
@@ -871,6 +894,7 @@ class ScanRequest(BaseModel):
 
 @router.post("/scan")
 async def trigger_scan(body: ScanRequest = ScanRequest()):
+    _require_inference()
     import state
     if state.scan_lock is not None and state.scan_lock.locked():
         state.scan_cancel.set()

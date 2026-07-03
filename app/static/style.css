@@ -8,6 +8,9 @@
   --radius: 10px; --radius-sm: 6px;
 }
 body { font-family: 'SF Pro Display','Segoe UI',system-ui,sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; font-size: 14px; line-height: 1.5; }
+.models-banner { display: none; background: rgba(201,74,74,0.12); border-bottom: 0.5px solid rgba(201,74,74,0.35); color: #e08080; font-size: 12px; padding: 8px 16px; line-height: 1.5; }
+.models-banner.visible { display: block; }
+.models-banner strong { color: #eb9b9b; }
 .shell { display: flex; height: 100vh; overflow: hidden; }
 .sidebar { width: 240px; min-width: 240px; background: var(--bg2); border-right: 0.5px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
 .sidebar-header { padding: 20px 16px 12px; border-bottom: 0.5px solid var(--border); display: flex; align-items: flex-start; justify-content: space-between; }

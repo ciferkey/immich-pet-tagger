@@ -5,6 +5,7 @@ import logging
 import os
 import queue
 import threading
+import time
 
 import numpy as np
 import torch
@@ -46,14 +47,38 @@ yolo_batch_total = 0
 yolo_batch_count = 0
 _yolo_stats_lock = threading.Lock()
 
+# Set when the first YOLO worker finishes loading. Never set if loading fails.
+_yolo_worker_ready = threading.Event()
+# Set to an error string if loading fails.
+_yolo_load_error: str | None = None
+
+
+def is_yolo_ready() -> bool:
+    return _yolo_worker_ready.is_set()
+
+
+def get_yolo_error() -> str | None:
+    return _yolo_load_error
+
 
 def _yolo_batch_loop(worker_id: int) -> None:
-    global yolo_batch_total, yolo_batch_count
+    global yolo_batch_total, yolo_batch_count, _yolo_load_error
     from ultralytics import YOLO
     device = "cuda" if torch.cuda.is_available() else "cpu"
     log.info(f"YOLO worker {worker_id} loading on {device}...")
-    model = YOLO("yolov8n.pt")
-    model.to(device)
+    try:
+        model = YOLO("yolov8n.pt")
+        model.to(device)
+    except Exception as e:
+        _yolo_load_error = str(e)
+        log.error(
+            f"YOLO worker {worker_id} failed to load: {e}. "
+            "On first start the model is downloaded (~6 MB). "
+            "Ensure the container has internet access, then restart. "
+            "Alternatively, copy yolov8n.pt into the data volume manually."
+        )
+        return
+    _yolo_worker_ready.set()
     log.info(f"YOLO worker {worker_id} ready")
 
     while True:
@@ -102,14 +127,26 @@ def _ensure_yolo_workers() -> None:
             _yolo_worker_threads.append(t)
 
 
+def _wait_for_yolo_ready(timeout: float = 300) -> None:
+    deadline = time.time() + timeout
+    while not _yolo_worker_ready.is_set():
+        if _yolo_load_error:
+            raise RuntimeError(f"YOLO not available: {_yolo_load_error}")
+        if time.time() > deadline:
+            raise RuntimeError(_yolo_load_error or "YOLO worker did not become ready")
+        time.sleep(0.1)
+
+
 def detect_animals(img: Image.Image) -> list[tuple[float, float, float, float]]:
     """Returns (x1, y1, x2, y2) normalized bboxes for detected animals, sorted by confidence."""
     _ensure_yolo_workers()
+    _wait_for_yolo_ready()
     # Pre-process in caller's thread (parallel across all scan workers).
     small = img.resize((YOLO_INPUT_SIZE, YOLO_INPUT_SIZE), Image.BILINEAR)
     arr = np.array(small, dtype=np.float32) / 255.0  # H×W×3, RGB, [0,1]
     tensor = torch.from_numpy(arr.transpose(2, 0, 1))  # C×H×W
     req = _YoloReq(tensor)
     _yolo_queue.put(req)
-    req.event.wait()
+    if not req.event.wait(timeout=120):
+        raise RuntimeError("YOLO worker did not respond within 120 s. Model may still be downloading.")
     return req.result
