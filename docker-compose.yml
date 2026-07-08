@@ -32,7 +32,7 @@ services:
       - ./data:/data
       - model_cache:/root/.cache
     networks:
-      - immich_default  # must match the network name below
+      - lab  # must match the network name below
 
 volumes:
   model_cache:
