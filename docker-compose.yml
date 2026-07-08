@@ -38,5 +38,5 @@ volumes:
   model_cache:
 
 networks:
-  immich_default:       # set to your Immich Docker network name (docker network ls)
+  lab:       # set to your Immich Docker network name (docker network ls)
     external: true      # this network is created by Immich's compose, not this one
